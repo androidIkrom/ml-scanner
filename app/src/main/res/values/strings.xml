@@ -1,14 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Classroom Scanner</string>
-    <string name="menu_scan">Scan</string>
-    <string name="menu_history">History</string>
     <string name="mode_full">Full Scan</string>
     <string name="mode_live">Live Scan</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
     <string name="objects_count">Objects: %d</string>
-    <string name="hint_idle">Choose a mode and press Start.</string>
+    <string name="hint_idle">Press Start when you are ready.</string>
     <string name="hint_full">Turn slowly in a full circle.</string>
     <string name="hint_live">Turn slowly. I will tell you what I find.</string>
     <string name="banner_slow_down">Slow down.</string>
@@ -26,4 +24,38 @@
     <string name="mode_full_short">Full</string>
     <string name="mode_live_short">Live</string>
     <string name="tts_unavailable">Speech is not available on this phone.</string>
+    <string name="label_home">Classroom Scanner</string>
+    <string name="label_settings">Scan settings</string>
+    <string name="label_scanner">Scanner</string>
+    <string name="label_history">History</string>
+    <string name="label_permission">Camera access</string>
+    <string name="home_title">What would you like to do?</string>
+    <string name="home_intro">Everything runs on your phone. Hold it upright and turn slowly.</string>
+    <string name="home_full_desc">Turn once around the room, then hear a summary.</string>
+    <string name="home_live_desc">Hear each object as soon as it is found.</string>
+    <string name="home_history_desc">Replay the summaries of past scans.</string>
+    <string name="home_no_sensor">This phone has no rotation sensor.</string>
+    <string name="settings_camera">Camera</string>
+    <string name="camera_back">Back</string>
+    <string name="camera_front">Front</string>
+    <string name="settings_compute">Processing</string>
+    <string name="compute_cpu">CPU</string>
+    <string name="compute_gpu">GPU</string>
+    <string name="settings_compute_hint">GPU is faster on many phones. If it fails, the app uses CPU.</string>
+    <string name="settings_model">Model</string>
+    <string name="model_fast">Fast</string>
+    <string name="model_accurate">Accurate</string>
+    <string name="settings_model_hint">Accurate finds far and partly hidden people better but is slower.</string>
+    <string name="settings_confidence">Confidence</string>
+    <string name="settings_confidence_hint">Higher values report fewer, surer objects. People are accepted a little earlier.</string>
+    <string name="settings_speech">Speak results</string>
+    <string name="settings_colors">Name colors</string>
+    <string name="start_scanning">Start scanning</string>
+    <string name="view_text">View text</string>
+    <string name="scan_text_title">Scan text</string>
+    <string name="scan_text_empty">Nothing said yet.</string>
+    <string name="scan_text_summary">Summary</string>
+    <string name="gpu_fallback">GPU unavailable, using CPU.</string>
+    <string name="camera_unavailable">This camera could not be opened. Go back and choose another camera.</string>
+    <string name="navigate_up">Back</string>
 </resources>

@@ -18,21 +18,29 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
-import androidx.navigation.Navigation
+import androidx.fragment.app.activityViewModels
+import androidx.navigation.fragment.findNavController
+import androidx.navigation.fragment.navArgs
 import com.classroomscanner.ObjectDetectorHelper
 import com.classroomscanner.R
 import com.classroomscanner.color.ColorNamer
 import com.classroomscanner.core.BoxGeometry
+import com.classroomscanner.core.CameraFacing
 import com.classroomscanner.core.ColorPolicy
+import com.classroomscanner.core.Compute
 import com.classroomscanner.core.DetectionFilter
 import com.classroomscanner.core.FrameDetection
+import com.classroomscanner.core.ModelChoice
 import com.classroomscanner.core.ScanMode
 import com.classroomscanner.core.ScanSession
+import com.classroomscanner.core.ScanSettings
 import com.classroomscanner.databinding.FragmentCameraBinding
 import com.classroomscanner.history.AppDatabase
 import com.classroomscanner.history.HistoryRepository
+import com.classroomscanner.scanlog.ScanLogViewModel
 import com.classroomscanner.sensor.CameraFov
 import com.classroomscanner.sensor.HeadingProvider
+import com.classroomscanner.settings.SettingsStore
 import com.classroomscanner.speech.SpeechAnnouncer
 import com.google.android.material.color.MaterialColors
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -41,6 +49,9 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, HeadingProvider.Listener {
+
+    private val args: CameraFragmentArgs by navArgs()
+    private val scanLog: ScanLogViewModel by activityViewModels()
 
     private var _fragmentCameraBinding: FragmentCameraBinding? = null
     private val fragmentCameraBinding get() = _fragmentCameraBinding!!
@@ -57,6 +68,10 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     private lateinit var headingProvider: HeadingProvider
     private lateinit var speech: SpeechAnnouncer
     private lateinit var history: HistoryRepository
+
+    // Set once in onViewCreated before the detector starts, then only read (also on the detector thread).
+    private lateinit var settings: ScanSettings
+    private lateinit var detectionFilter: DetectionFilter
     private var hfov = CameraFov.FALLBACK_DEG
 
     // Main thread only.
@@ -69,18 +84,22 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     @Volatile
     private var relHeading = 0f
 
+    @Volatile
+    private var gpuFallbackStarted = false
+
     override fun onResume() {
         super.onResume()
         if (!PermissionsFragment.hasPermissions(requireContext())) {
-            Navigation.findNavController(requireActivity(), R.id.fragment_container)
-                .navigate(CameraFragmentDirections.actionCameraToPermissions())
+            findNavController().popBackStack()
+            return
         }
         backgroundExecutor.execute {
             if (objectDetectorHelper.isClosed()) {
+                if (gpuFallbackStarted) objectDetectorHelper.currentDelegate = ObjectDetectorHelper.DELEGATE_CPU
                 objectDetectorHelper.setupObjectDetector()
             }
             if (!objectDetectorHelper.isClosed()) {
-                activity?.runOnUiThread { _fragmentCameraBinding?.startStop?.isEnabled = true }
+                activity?.runOnUiThread { _fragmentCameraBinding?.startStop?.isEnabled = canStart() }
             }
         }
     }
@@ -94,11 +113,13 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     }
 
     override fun onDestroyView() {
-        speech.shutdown()
+        speech.shutdownWhenIdle()
         _fragmentCameraBinding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()
-        backgroundExecutor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)
+        if (!backgroundExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+            Log.w(TAG, "Detector thread still busy after 2 s")
+        }
     }
 
     override fun onCreateView(
@@ -114,52 +135,76 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val context = requireContext()
+        settings = SettingsStore(context).load()
+        detectionFilter = DetectionFilter(settings.minScore)
         headingProvider = HeadingProvider(context, this)
-        speech = SpeechAnnouncer(context)
+        speech = SpeechAnnouncer(context).apply { muted = !settings.speechOn }
         history = HistoryRepository(AppDatabase.get(context).scanDao())
-        hfov = CameraFov.portraitHorizontalFov(context)
-        Log.i(TAG, "Horizontal FOV: $hfov")
+        hfov = CameraFov.portraitHorizontalFov(context, settings.camera)
+        Log.i(TAG, "Settings: $settings, horizontal FOV: $hfov")
+        gpuFallbackStarted = false
+        if (savedInstanceState == null) scanLog.start()
 
         backgroundExecutor = Executors.newSingleThreadExecutor()
         backgroundExecutor.execute {
             objectDetectorHelper = ObjectDetectorHelper(
+                currentDelegate = if (settings.compute == Compute.GPU) {
+                    ObjectDetectorHelper.DELEGATE_GPU
+                } else {
+                    ObjectDetectorHelper.DELEGATE_CPU
+                },
+                currentModel = if (settings.model == ModelChoice.FAST) {
+                    ObjectDetectorHelper.MODEL_EFFICIENTDETV0
+                } else {
+                    ObjectDetectorHelper.MODEL_EFFICIENTDETV2
+                },
                 context = context,
                 objectDetectorListener = this,
                 runningMode = RunningMode.LIVE_STREAM
             )
-            fragmentCameraBinding.viewFinder.post { setUpCamera() }
+            val b = _fragmentCameraBinding
+            if (b == null) {
+                // The view is gone already; close the detector we just opened.
+                objectDetectorHelper.clearObjectDetector()
+            } else {
+                b.viewFinder.post { if (_fragmentCameraBinding != null) setUpCamera() }
+            }
         }
 
         fragmentCameraBinding.overlay.setRunningMode(RunningMode.LIVE_STREAM)
+        fragmentCameraBinding.overlay.mirrored = settings.camera == CameraFacing.FRONT
         initScanControls()
     }
 
     private fun initScanControls() {
         val b = fragmentCameraBinding
-        if (!headingProvider.isAvailable) {
-            b.modeFull.isEnabled = false
-            b.modeLive.isChecked = true
-        }
+        b.modeLabel.setText(if (args.mode == ScanMode.FULL) R.string.mode_full else R.string.mode_live)
         b.objectCount.text = getString(R.string.objects_count, 0)
+        b.startStop.isEnabled = canStart()
         b.startStop.setOnClickListener { if (session == null) startScan() else stopScan() }
+        b.viewText.setOnClickListener {
+            if (!childFragmentManager.isStateSaved && childFragmentManager.findFragmentByTag(ScanTextDialog.TAG) == null) {
+                ScanTextDialog().showNow(childFragmentManager, ScanTextDialog.TAG)
+            }
+        }
         updateBanner()
     }
 
+    /** Full Scan needs the rotation sensor; Live Scan works without it. */
+    private fun canStart() = args.mode == ScanMode.LIVE || headingProvider.isAvailable
+
     private fun startScan() {
         val b = fragmentCameraBinding
-        val mode = if (b.modeLive.isChecked) ScanMode.LIVE else ScanMode.FULL
-        session = ScanSession(mode, System.currentTimeMillis())
+        session = ScanSession(args.mode, System.currentTimeMillis())
         relHeading = 0f
         headingProvider.start()
+        // A finished earlier scan is cleared; notes from before the first scan (like the GPU message) stay.
+        if (scanLog.state.value.summary != null) scanLog.start()
 
         showRunning(true)
-        b.modeFull.isEnabled = false
-        b.modeLive.isEnabled = false
         b.coverageRing.reset()
         b.objectCount.text = getString(R.string.objects_count, 0)
-        val hint = getString(if (mode == ScanMode.FULL) R.string.hint_full else R.string.hint_live)
-        b.announcement.text = hint
-        speech.announce(hint)
+        say(getString(if (args.mode == ScanMode.FULL) R.string.hint_full else R.string.hint_live))
     }
 
     private fun stopScan() {
@@ -171,16 +216,22 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
 
         val result = s.finish()
         speech.speakNow(result.summaryText)
+        scanLog.finish(result.summaryText)
         history.saveDetached(result)
         Log.i(TAG, "Scan finished: ${result.summaryText}")
 
         _fragmentCameraBinding?.let { b ->
             b.announcement.text = result.summaryText
             showRunning(false)
-            b.modeFull.isEnabled = headingProvider.isAvailable
-            b.modeLive.isEnabled = true
         }
         updateBanner()
+    }
+
+    /** Shows [text], writes it to the scan log and speaks it (unless speech is off). */
+    private fun say(text: String) {
+        _fragmentCameraBinding?.announcement?.text = text
+        scanLog.add(text)
+        speech.announce(text)
     }
 
     private fun updateBanner() {
@@ -222,6 +273,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         val now = System.currentTimeMillis()
         tooFast = speedDegPerSec > MAX_SPEED_DEG_PER_SEC
         if (tooFast && now - lastSlowDownSpokenAt > SLOW_DOWN_REPEAT_MS) {
+            scanLog.add(getString(R.string.banner_slow_down))
             speech.announce(getString(R.string.banner_slow_down))
             lastSlowDownSpokenAt = now
         }
@@ -237,35 +289,42 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
 
     // Initialize CameraX, and prepare to bind the camera use cases
     private fun setUpCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
+        val context = context ?: return
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener(
             {
+                if (_fragmentCameraBinding == null || !isAdded) return@addListener
                 cameraProvider = cameraProviderFuture.get()
                 bindCameraUseCases()
             },
-            ContextCompat.getMainExecutor(requireContext())
+            ContextCompat.getMainExecutor(context)
         )
     }
 
     // Declare and bind preview and analysis use cases
     @SuppressLint("UnsafeOptInUsageError")
     private fun bindCameraUseCases() {
+        val binding = _fragmentCameraBinding ?: return
         val cameraProvider = cameraProvider
             ?: throw IllegalStateException("Camera initialization failed.")
 
-        val cameraSelector = CameraSelector.Builder()
-            .requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
+        val lensFacing = if (settings.camera == CameraFacing.FRONT) {
+            CameraSelector.LENS_FACING_FRONT
+        } else {
+            CameraSelector.LENS_FACING_BACK
+        }
+        val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
 
         // Only using the 4:3 ratio because this is the closest to our models
         preview = Preview.Builder()
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            .setTargetRotation(fragmentCameraBinding.viewFinder.display.rotation)
+            .setTargetRotation(binding.viewFinder.display.rotation)
             .build()
 
         // Using RGBA 8888 to match how our models work
         imageAnalyzer = ImageAnalysis.Builder()
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            .setTargetRotation(fragmentCameraBinding.viewFinder.display.rotation)
+            .setTargetRotation(binding.viewFinder.display.rotation)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .build()
@@ -276,15 +335,19 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         cameraProvider.unbindAll()
         try {
             camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalyzer)
-            preview?.setSurfaceProvider(fragmentCameraBinding.viewFinder.surfaceProvider)
+            preview?.setSurfaceProvider(binding.viewFinder.surfaceProvider)
         } catch (exc: Exception) {
             Log.e(TAG, "Use case binding failed", exc)
+            binding.announcement.text = getString(R.string.camera_unavailable)
+            scanLog.add(getString(R.string.camera_unavailable))
+            binding.startStop.isEnabled = false
         }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        imageAnalyzer?.targetRotation = fragmentCameraBinding.viewFinder.display.rotation
+        val rotation = _fragmentCameraBinding?.viewFinder?.display?.rotation ?: return
+        imageAnalyzer?.targetRotation = rotation
     }
 
     // Runs on the MediaPipe result thread.
@@ -292,7 +355,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         val result = resultBundle.results[0]
         val heading = relHeading
         val frame = resultBundle.frame
-        val frameStats = frame?.let { ColorNamer.frameStats(it) }
+        val frameStats = if (settings.colorsOn) frame?.let { ColorNamer.frameStats(it) } else null
 
         val evaluated = result.detections().map { d ->
             val box = d.boundingBox()
@@ -302,10 +365,10 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             )
             val category = d.categories()[0]
             val label = category.categoryName()
-            val kept = DetectionFilter.keep(label, category.score())
+            val kept = detectionFilter.keep(label, category.score())
             val detection = FrameDetection(
                 label = label,
-                angle = BoxGeometry.objectAngle(heading, center, hfov),
+                angle = BoxGeometry.objectAngle(heading, center, hfov, settings.camera),
                 color = if (kept && frame != null && frameStats != null && ColorPolicy.hasColor(label)) {
                     ColorNamer.name(frame, box, frameStats)
                 } else {
@@ -336,24 +399,48 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             b.overlay.invalidate()
 
             val s = session ?: return@runOnUiThread
-            val phrases = s.onFrame(countedDetections)
-            phrases.forEach(speech::announce)
-            if (phrases.isNotEmpty()) b.announcement.text = phrases.last()
+            s.onFrame(countedDetections).forEach(::say)
             updateScanUi(s)
             if (s.shouldAutoStop(System.currentTimeMillis())) stopScan()
         }
     }
 
+    // Detector init errors arrive on the detector thread; live-frame errors on the MediaPipe thread.
     override fun onError(error: String, errorCode: Int) {
+        if (errorCode == ObjectDetectorHelper.GPU_ERROR && settings.compute == Compute.GPU && !gpuFallbackStarted) {
+            gpuFallbackStarted = true
+            Log.w(TAG, "GPU detector failed, falling back to CPU: $error")
+            try {
+                backgroundExecutor.execute {
+                    objectDetectorHelper.currentDelegate = ObjectDetectorHelper.DELEGATE_CPU
+                    if (objectDetectorHelper.isClosed()) {
+                        objectDetectorHelper.setupObjectDetector()
+                    }
+                    if (!objectDetectorHelper.isClosed()) {
+                        activity?.runOnUiThread { _fragmentCameraBinding?.startStop?.isEnabled = canStart() }
+                    }
+                }
+            } catch (e: java.util.concurrent.RejectedExecutionException) {
+                Log.w(TAG, "Scanner closed before GPU fallback", e)
+            }
+            activity?.runOnUiThread {
+                if (_fragmentCameraBinding == null) return@runOnUiThread
+                val message = getString(R.string.gpu_fallback)
+                fragmentCameraBinding.announcement.text = message
+                scanLog.add(message)
+            }
+            return
+        }
         activity?.runOnUiThread {
             val b = _fragmentCameraBinding ?: return@runOnUiThread
             Log.e(TAG, error)
             b.announcement.text = error
+            if (scanLog.state.value.entries.lastOrNull()?.text != error) scanLog.add(error)
             if (session == null) b.startStop.isEnabled = false
         }
     }
 
-    /** One detector output: whether it passes the per-label threshold and whether it is counted. */
+    /** One detector output: whether it passes the confidence filter and whether it is counted. */
     private class Evaluated(val detection: FrameDetection, val kept: Boolean, val counted: Boolean)
 
     private var framesSinceTimingLog = 0

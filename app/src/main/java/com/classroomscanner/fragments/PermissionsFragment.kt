@@ -13,15 +13,16 @@ import android.view.ViewGroup
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
-import androidx.navigation.Navigation
-import com.classroomscanner.R
+import androidx.navigation.fragment.findNavController
+import androidx.navigation.fragment.navArgs
 import com.classroomscanner.databinding.FragmentPermissionsBinding
 
 private val PERMISSIONS_REQUIRED = arrayOf(Manifest.permission.CAMERA)
 
-/** Asks for the camera permission, explains why, and moves on to the Scan screen once granted. */
+/** Asks for the camera permission, explains why, and continues to the scanner once granted. */
 class PermissionsFragment : Fragment() {
 
+    private val args: PermissionsFragmentArgs by navArgs()
     private var navigated = false
 
     private val requestPermissionLauncher =
@@ -59,8 +60,7 @@ class PermissionsFragment : Fragment() {
     private fun navigateToCamera() {
         if (navigated) return
         navigated = true
-        Navigation.findNavController(requireActivity(), R.id.fragment_container)
-            .navigate(PermissionsFragmentDirections.actionPermissionsToCamera())
+        findNavController().navigate(PermissionsFragmentDirections.actionPermissionsToCamera(args.mode))
     }
 
     companion object {

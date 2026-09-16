@@ -41,6 +41,9 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
     private var runningMode: RunningMode = RunningMode.IMAGE
     private var labels: List<String?>? = null
 
+    /** True for the front camera: its preview is mirrored, so boxes are flipped horizontally too. */
+    var mirrored: Boolean = false
+
     init {
         initPaints()
     }
@@ -97,6 +100,10 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
                 matrix.postTranslate(outputWidth / 2f, outputHeight / 2f)
             }
             matrix.mapRect(boxRect)
+            if (mirrored) {
+                val rotatedWidth = if (outputRotate == 90 || outputRotate == 270) outputHeight else outputWidth
+                boxRect.set(rotatedWidth - boxRect.right, boxRect.top, rotatedWidth - boxRect.left, boxRect.bottom)
+            }
             boxRect
         }?.forEachIndexed { index, floats ->
             // With custom labels, a null entry means the detection was filtered out: do not draw it.
