@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
@@ -37,6 +38,9 @@ class SettingsFragment : Fragment() {
         binding.modeDesc.setText(if (full) R.string.home_full_desc else R.string.home_live_desc)
         binding.modeIcon.setImageResource(if (full) R.drawable.ic_360_24 else R.drawable.ic_graphic_eq_24)
 
+        showOptions(savedInstanceState?.getBoolean(KEY_OPTIONS_OPEN) ?: false)
+        binding.optionsHeader.setOnClickListener { showOptions(!binding.optionsContent.isVisible) }
+
         if (savedInstanceState == null) show(store.load())
         showConfidence(binding.confidenceSlider.value)
         binding.confidenceSlider.addOnChangeListener { _, value, _ -> showConfidence(value) }
@@ -53,9 +57,22 @@ class SettingsFragment : Fragment() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        _binding?.let { outState.putBoolean(KEY_OPTIONS_OPEN, it.optionsContent.isVisible) }
+    }
+
     override fun onDestroyView() {
         _binding = null
         super.onDestroyView()
+    }
+
+    /** The settings cards stay hidden until the Options row is tapped. */
+    private fun showOptions(open: Boolean) {
+        binding.optionsContent.isVisible = open
+        binding.optionsChevron.rotation = if (open) 180f else 0f
+        binding.optionsHeader.contentDescription =
+            getString(if (open) R.string.options_expanded else R.string.options_collapsed)
     }
 
     private fun show(s: ScanSettings) {
@@ -78,5 +95,9 @@ class SettingsFragment : Fragment() {
 
     private fun showConfidence(value: Float) {
         binding.confidenceValue.text = String.format(Locale.US, "%.1f", value)
+    }
+
+    private companion object {
+        const val KEY_OPTIONS_OPEN = "options_open"
     }
 }

@@ -58,6 +58,12 @@
     <string name="gpu_fallback">GPU unavailable, using CPU.</string>
     <string name="camera_unavailable">This camera could not be opened. Go back and choose another camera.</string>
     <string name="navigate_up">Back</string>
+    <string name="options">Options</string>
+    <string name="options_collapsed">Options, collapsed</string>
+    <string name="options_expanded">Options, expanded</string>
+    <string name="switch_camera">Switch camera</string>
+    <string name="camera_now_front">Front camera</string>
+    <string name="camera_now_back">Back camera</string>
     <string name="voice_guide_on">Voice guide on</string>
     <string name="voice_guide_off">Voice guide off</string>
     <string name="voice_guide_desc_on">Voice guide, on</string>

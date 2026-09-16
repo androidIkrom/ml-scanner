@@ -69,9 +69,12 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     private lateinit var speech: SpeechAnnouncer
     private lateinit var history: HistoryRepository
 
-    // Set once in onViewCreated before the detector starts, then only read (also on the detector thread).
+    // Set in onViewCreated before the detector starts; `settings` and `hfov` also change on the main
+    // thread when the camera is switched, and are read on the detector thread.
+    @Volatile
     private lateinit var settings: ScanSettings
     private lateinit var detectionFilter: DetectionFilter
+    @Volatile
     private var hfov = CameraFov.FALLBACK_DEG
 
     // Main thread only.
@@ -182,6 +185,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         b.objectCount.text = getString(R.string.objects_count, 0)
         b.startStop.isEnabled = canStart()
         b.startStop.setOnClickListener { if (session == null) startScan() else stopScan() }
+        b.switchCamera.setOnClickListener { switchCamera() }
         b.viewText.setOnClickListener {
             if (!childFragmentManager.isStateSaved && childFragmentManager.findFragmentByTag(ScanTextDialog.TAG) == null) {
                 ScanTextDialog().showNow(childFragmentManager, ScanTextDialog.TAG)
@@ -193,6 +197,21 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     /** Full Scan needs the rotation sensor; Live Scan works without it. */
     private fun canStart() = args.mode == ScanMode.LIVE || headingProvider.isAvailable
 
+    /** Flips between the back and front camera between scans and remembers the choice. */
+    private fun switchCamera() {
+        if (session != null || cameraProvider == null) return
+        val context = context ?: return
+        val b = _fragmentCameraBinding ?: return
+        val facing = if (settings.camera == CameraFacing.FRONT) CameraFacing.BACK else CameraFacing.FRONT
+        settings = settings.copy(camera = facing)
+        SettingsStore(context).save(settings)
+        hfov = CameraFov.portraitHorizontalFov(context, facing)
+        b.overlay.clear()
+        b.overlay.mirrored = facing == CameraFacing.FRONT
+        say(getString(if (facing == CameraFacing.FRONT) R.string.camera_now_front else R.string.camera_now_back))
+        bindCameraUseCases()
+    }
+
     private fun startScan() {
         val b = fragmentCameraBinding
         session = ScanSession(args.mode, System.currentTimeMillis())
@@ -202,6 +221,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         if (scanLog.state.value.summary != null) scanLog.start()
 
         showRunning(true)
+        b.switchCamera.isEnabled = false
         b.coverageRing.reset()
         b.objectCount.text = getString(R.string.objects_count, 0)
         say(getString(if (args.mode == ScanMode.FULL) R.string.hint_full else R.string.hint_live))
@@ -223,6 +243,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         _fragmentCameraBinding?.let { b ->
             b.announcement.text = result.summaryText
             showRunning(false)
+            b.switchCamera.isEnabled = true
         }
         updateBanner()
     }
@@ -336,6 +357,10 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         try {
             camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalyzer)
             preview?.setSurfaceProvider(binding.viewFinder.surfaceProvider)
+            // A camera switch may follow a failed bind; allow Start again once the detector is open.
+            if (this::objectDetectorHelper.isInitialized && !objectDetectorHelper.isClosed()) {
+                binding.startStop.isEnabled = canStart()
+            }
         } catch (exc: Exception) {
             Log.e(TAG, "Use case binding failed", exc)
             binding.announcement.text = getString(R.string.camera_unavailable)
