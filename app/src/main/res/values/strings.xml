@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Classroom Scanner</string>
+    <string name="app_name">ML Scanner</string>
     <string name="mode_full">Full Scan</string>
     <string name="mode_live">Live Scan</string>
     <string name="start">Start</string>
@@ -12,7 +12,7 @@
     <string name="banner_slow_down">Slow down.</string>
     <string name="banner_calibrate">Calibrate compass: move the phone in a figure 8.</string>
     <string name="banner_no_compass">No rotation sensor: Full Scan is disabled.</string>
-    <string name="permission_explanation">Classroom Scanner needs the camera to find objects around you. Images never leave your phone.</string>
+    <string name="permission_explanation">ML Scanner needs the camera to find objects around you. Images never leave your phone.</string>
     <string name="permission_title">Camera access needed</string>
     <string name="grant">Grant camera access</string>
     <string name="history_empty">No scans yet.</string>
@@ -24,7 +24,7 @@
     <string name="mode_full_short">Full</string>
     <string name="mode_live_short">Live</string>
     <string name="tts_unavailable">Speech is not available on this phone.</string>
-    <string name="label_home">Classroom Scanner</string>
+    <string name="label_home">ML Scanner</string>
     <string name="label_settings">Scan settings</string>
     <string name="label_scanner">Scanner</string>
     <string name="label_history">History</string>

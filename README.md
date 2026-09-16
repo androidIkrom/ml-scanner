@@ -1,4 +1,4 @@
-# Classroom Scanner
+# ML Scanner
 
 An on-device Android app that helps blind and low-vision users understand a room. Turn around once with the phone and it tells you what is around you:
 
