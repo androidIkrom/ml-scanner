@@ -23,6 +23,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.camera.core.ImageProxy
+import com.google.mediapipe.framework.image.BitmapExtractor
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.MPImage
 import com.google.mediapipe.tasks.core.BaseOptions
@@ -286,7 +287,8 @@ class ObjectDetectorHelper(
                 inferenceTime,
                 input.height,
                 input.width,
-                imageRotation
+                imageRotation,
+                BitmapExtractor.extract(input)
             )
         )
     }
@@ -340,7 +342,8 @@ class ObjectDetectorHelper(
         val inferenceTime: Long,
         val inputImageHeight: Int,
         val inputImageWidth: Int,
-        val inputImageRotation: Int = 0
+        val inputImageRotation: Int = 0,
+        val frame: Bitmap? = null
     )
 
     companion object {
@@ -348,7 +351,7 @@ class ObjectDetectorHelper(
         const val DELEGATE_GPU = 1
         const val MODEL_EFFICIENTDETV0 = 0
         const val MODEL_EFFICIENTDETV2 = 1
-        const val MAX_RESULTS_DEFAULT = 3
+        const val MAX_RESULTS_DEFAULT = 10
         const val THRESHOLD_DEFAULT = 0.5F
         const val OTHER_ERROR = 0
         const val GPU_ERROR = 1
