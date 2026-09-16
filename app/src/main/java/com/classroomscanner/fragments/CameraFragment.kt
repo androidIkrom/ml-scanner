@@ -17,7 +17,6 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.Navigation
 import com.classroomscanner.ObjectDetectorHelper
 import com.classroomscanner.R
@@ -33,7 +32,6 @@ import com.classroomscanner.sensor.CameraFov
 import com.classroomscanner.sensor.HeadingProvider
 import com.classroomscanner.speech.SpeechAnnouncer
 import com.google.mediapipe.tasks.vision.core.RunningMode
-import kotlinx.coroutines.launch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -169,7 +167,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
 
         val result = s.finish()
         speech.speakNow(result.summaryText)
-        lifecycleScope.launch { history.save(result) }
+        history.saveDetached(result)
         Log.i(TAG, "Scan finished: ${result.summaryText}")
 
         _fragmentCameraBinding?.let { b ->
