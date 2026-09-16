@@ -57,7 +57,7 @@ class SummaryBuilderTest {
             listOf(obj("laptop", 1, "black", 0f), obj("chair", 4, null, 10f)),
             100,
         )
-        assertEquals("Around you: 4 chairs, a black laptop in front.", text)
+        assertEquals("Around you: 4 chairs and a black laptop in front.", text)
     }
 
     @Test
@@ -130,7 +130,7 @@ class SummaryBuilderTest {
             ),
             100,
         )
-        assertEquals("Around you: 3 chairs in blue and red, a black laptop in front.", text)
+        assertEquals("Around you: 3 chairs in blue and red, and a black laptop in front.", text)
     }
 
     @Test
@@ -142,5 +142,37 @@ class SummaryBuilderTest {
         assertEquals("Around you: 2 people behind you.", text)
         assertEquals("Person on your left.", SummaryBuilder.livePhrase(obj("person", 1, "blue", 270f)))
         assertEquals("a person", SummaryBuilder.describe(obj("person", 1, "blue", 0f)))
+    }
+
+    @Test
+    fun namesAreSpokenWithoutArticlesOrPlurals() {
+        val text = SummaryBuilder.fullSummary(
+            listOf(
+                ObjectSummary("Vali", 1, "blue", 5f, isName = true),
+                ObjectSummary("Ali", 1, null, 0f, isName = true),
+                ObjectSummary("person", 2, null, 180f),
+            ),
+            100,
+        )
+        assertEquals("Around you: Vali and Ali in front; 2 people behind you.", text)
+    }
+
+    @Test
+    fun threeGroupsUseCommasAndAnd() {
+        val text = SummaryBuilder.fullSummary(
+            listOf(
+                ObjectSummary("Ali", 1, null, 0f, isName = true),
+                obj("chair", 2, null, 5f),
+                obj("laptop", 1, null, 10f),
+            ),
+            100,
+        )
+        assertEquals("Around you: Ali, 2 chairs and a laptop in front.", text)
+    }
+
+    @Test
+    fun liveNameAndDescribeName() {
+        assertEquals("Ali on your left.", SummaryBuilder.livePhrase(ObjectSummary("Ali", 1, "red", 270f, isName = true)))
+        assertEquals("Ali", SummaryBuilder.describe(ObjectSummary("Ali", 2, "red", 0f, isName = true)))
     }
 }

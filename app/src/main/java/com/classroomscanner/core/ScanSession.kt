@@ -47,10 +47,10 @@ class ScanSession(
 
     fun finish(): ScanResult {
         finished = true
-        val objects = clusterer.confirmed().map { it.toSummary() }
+        val objects = NamedPeople.dropShadowedPersons(clusterer.confirmed().map { it.toSummary() })
         val percent = coverage.percent()
         return ScanResult(mode, startedAtMs, percent, objects, SummaryBuilder.fullSummary(objects, percent))
     }
 
-    private fun Cluster.toSummary() = ObjectSummary(label, count, color, meanAngle)
+    private fun Cluster.toSummary() = ObjectSummary(label, count, color, meanAngle, isName)
 }
