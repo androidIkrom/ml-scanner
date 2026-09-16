@@ -33,4 +33,11 @@ task downloadModelFile2(type: Download) {
     overwrite false
 }
 
-preBuild.dependsOn downloadModelFile0, downloadModelFile1, downloadModelFile2
+// MediaPipe interactive segmenter (MagicTouch v2) for object outlines.
+task downloadModelFile3(type: Download) {
+    src 'https://storage.googleapis.com/mediapipe-models/interactive_segmenter_v2/magic_touch/int8/1/interactive_segmentation.task'
+    dest project.ext.ASSET_DIR + '/interactive_segmentation.task'
+    overwrite false
+}
+
+preBuild.dependsOn downloadModelFile0, downloadModelFile1, downloadModelFile2, downloadModelFile3

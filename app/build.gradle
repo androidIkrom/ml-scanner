@@ -41,7 +41,7 @@ android {
         viewBinding true
     }
     androidResources {
-        noCompress 'tflite'
+        noCompress 'tflite', 'task'
     }
 }
 

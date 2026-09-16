@@ -40,6 +40,13 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
     private var outputRotate = 0
     private var runningMode: RunningMode = RunningMode.IMAGE
     private var labels: List<String?>? = null
+    private var outlines: List<FloatArray?>? = null
+    private val outlinePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 7f
+        strokeCap = Paint.Cap.ROUND
+        isAntiAlias = true
+    }
 
     /** True for the front camera: its preview is mirrored, so boxes are flipped horizontally too. */
     var mirrored: Boolean = false
@@ -51,6 +58,7 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
     fun clear() {
         results = null
         labels = null
+        outlines = null
         textPaint.reset()
         textBackgroundPaint.reset()
         boxPaint.reset()
@@ -72,12 +80,14 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
         textPaint.textSize = 50f
 
         boxPaint.color = ContextCompat.getColor(context!!, R.color.mp_primary)
+        outlinePaint.color = boxPaint.color
         boxPaint.strokeWidth = 8F
         boxPaint.style = Paint.Style.STROKE
     }
 
     override fun draw(canvas: Canvas) {
         super.draw(canvas)
+        val toView = imageToViewMatrix()
         results?.detections()?.map {
             val boxRect = RectF(
                 it.boundingBox().left,
@@ -85,24 +95,9 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
                 it.boundingBox().right,
                 it.boundingBox().bottom
             )
-            val matrix = Matrix()
-            matrix.postTranslate(-outputWidth / 2f, -outputHeight / 2f)
-
-            // Rotate box.
-            matrix.postRotate(outputRotate.toFloat())
-
-            // If the outputRotate is 90 or 270 degrees, the translation is
-            // applied after the rotation. This is because a 90 or 270 degree rotation
-            // flips the image vertically or horizontally, respectively.
-            if (outputRotate == 90 || outputRotate == 270) {
-                matrix.postTranslate(outputHeight / 2f, outputWidth / 2f)
-            } else {
-                matrix.postTranslate(outputWidth / 2f, outputHeight / 2f)
-            }
-            matrix.mapRect(boxRect)
+            toView.mapRect(boxRect)
             if (mirrored) {
-                val rotatedWidth = if (outputRotate == 90 || outputRotate == 270) outputHeight else outputWidth
-                boxRect.set(rotatedWidth - boxRect.right, boxRect.top, rotatedWidth - boxRect.left, boxRect.bottom)
+                boxRect.set(rotatedWidth() - boxRect.right, boxRect.top, rotatedWidth() - boxRect.left, boxRect.bottom)
             }
             boxRect
         }?.forEachIndexed { index, floats ->
@@ -115,8 +110,19 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
             val right = floats.right * scaleFactor
 
             // Draw bounding box around detected objects
-            val drawableRect = RectF(left, top, right, bottom)
-            canvas.drawRect(drawableRect, boxPaint)
+            val outline = outlines?.getOrNull(index)
+            if (outline != null && outline.isNotEmpty()) {
+                // Draw the object's shape instead of its box.
+                val points = outline.copyOf()
+                toView.mapPoints(points)
+                for (i in points.indices) {
+                    if (mirrored && i % 2 == 0) points[i] = rotatedWidth() - points[i]
+                    points[i] *= scaleFactor
+                }
+                canvas.drawLines(points, outlinePaint)
+            } else {
+                canvas.drawRect(RectF(left, top, right, bottom), boxPaint)
+            }
 
             // Create text to display alongside detected objects
             val category = results?.detections()!![index].categories()[0]
@@ -155,9 +161,11 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
         outputHeight: Int,
         outputWidth: Int,
         imageRotation: Int,
-        labels: List<String?>? = null
+        labels: List<String?>? = null,
+        outlines: List<FloatArray?>? = null
     ) {
         this.labels = labels
+        this.outlines = outlines
         results = detectionResults
         this.outputWidth = outputWidth
         this.outputHeight = outputHeight
@@ -196,6 +204,20 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
 
         invalidate()
     }
+
+    /** Maps unrotated image pixels to the upright image (before scaling to the view). */
+    private fun imageToViewMatrix(): Matrix = Matrix().apply {
+        postTranslate(-outputWidth / 2f, -outputHeight / 2f)
+        postRotate(outputRotate.toFloat())
+        // After a 90 or 270 degree turn the image's width and height swap.
+        if (outputRotate == 90 || outputRotate == 270) {
+            postTranslate(outputHeight / 2f, outputWidth / 2f)
+        } else {
+            postTranslate(outputWidth / 2f, outputHeight / 2f)
+        }
+    }
+
+    private fun rotatedWidth(): Int = if (outputRotate == 90 || outputRotate == 270) outputHeight else outputWidth
 
     companion object {
         private const val BOUNDING_RECT_TEXT_PADDING = 8
