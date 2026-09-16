@@ -29,6 +29,9 @@
         <action
             android:id="@+id/action_home_to_history"
             app:destination="@id/history_fragment" />
+        <action
+            android:id="@+id/action_home_to_people"
+            app:destination="@id/people_fragment" />
     </fragment>
 
     <fragment
@@ -73,4 +76,46 @@
         android:id="@+id/history_fragment"
         android:name="com.classroomscanner.fragments.HistoryFragment"
         android:label="@string/label_history" />
+
+    <fragment
+        android:id="@+id/people_fragment"
+        android:name="com.classroomscanner.fragments.PeopleFragment"
+        android:label="@string/label_people">
+        <action
+            android:id="@+id/action_people_to_person"
+            app:destination="@id/person_fragment" />
+        <action
+            android:id="@+id/action_people_to_add_person"
+            app:destination="@id/add_person_fragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/person_fragment"
+        android:name="com.classroomscanner.fragments.PersonFragment"
+        android:label="@string/label_person">
+        <argument
+            android:name="personId"
+            app:argType="long" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/add_person_fragment"
+        android:name="com.classroomscanner.fragments.AddPersonFragment"
+        android:label="@string/label_add_person">
+        <action
+            android:id="@+id/action_add_person_to_enroll"
+            app:destination="@id/enroll_fragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/enroll_fragment"
+        android:name="com.classroomscanner.fragments.EnrollFragment"
+        android:label="@string/label_enroll">
+        <argument
+            android:name="name"
+            app:argType="string" />
+        <argument
+            android:name="front"
+            app:argType="boolean" />
+    </fragment>
 </navigation>

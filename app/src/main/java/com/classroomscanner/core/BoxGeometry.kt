@@ -22,6 +22,24 @@ object BoxGeometry {
         return fraction.coerceIn(0f, 1f)
     }
 
+    /**
+     * A box from the unrotated camera buffer ([imageWidth] x [imageHeight]) in upright-image pixels,
+     * as `[left, top, right, bottom]`. Uses the same clockwise rotation as [horizontalCenter].
+     */
+    fun toUpright(
+        left: Float, top: Float, right: Float, bottom: Float,
+        imageWidth: Int, imageHeight: Int, rotationDegrees: Int,
+    ): FloatArray {
+        val w = imageWidth.toFloat()
+        val h = imageHeight.toFloat()
+        return when (rotationDegrees) {
+            90 -> floatArrayOf(h - bottom, left, h - top, right)
+            180 -> floatArrayOf(w - right, h - bottom, w - left, h - top)
+            270 -> floatArrayOf(top, w - right, bottom, w - left)
+            else -> floatArrayOf(left, top, right, bottom)
+        }
+    }
+
     /** The front camera looks backward when the phone is upright, so its base direction is turned by 180°. */
     fun objectAngle(
         relHeading: Float,

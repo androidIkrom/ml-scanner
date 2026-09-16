@@ -3,10 +3,16 @@ package com.classroomscanner.core
 import kotlin.math.abs
 
 /** One detection in one camera frame, already converted to a scan-relative angle. */
-data class FrameDetection(val label: String, val angle: Float, val color: String?)
+data class FrameDetection(
+    val label: String,
+    val angle: Float,
+    val color: String?,
+    /** True when [label] is a recognized person's name. */
+    val isName: Boolean = false,
+)
 
 /** A single real-world object (or a tight group of same-label objects) seen across frames. */
-class Cluster internal constructor(val id: Int, val label: String, angle: Float) {
+class Cluster internal constructor(val id: Int, val label: String, angle: Float, val isName: Boolean = false) {
     var meanAngle: Float = angle
         internal set
     var framesSeen: Int = 0
@@ -51,7 +57,7 @@ class ObjectClusterer(
     fun addFrame(detections: List<FrameDetection>): List<Cluster> {
         val hitsInFrame = LinkedHashMap<Cluster, Int>()
         for (d in detections) {
-            val cluster = nearest(d) ?: Cluster(nextId++, d.label, d.angle).also { clusters += it }
+            val cluster = nearest(d) ?: Cluster(nextId++, d.label, d.angle, d.isName).also { clusters += it }
             cluster.meanAngle = AngleMath.weightedMean(cluster.meanAngle, cluster.samples, d.angle)
             cluster.samples++
             cluster.vote(d.color)
@@ -70,6 +76,6 @@ class ObjectClusterer(
 
     private fun nearest(d: FrameDetection): Cluster? =
         clusters
-            .filter { it.label == d.label && abs(AngleMath.diff(d.angle, it.meanAngle)) < mergeDeg }
+            .filter { it.label == d.label && it.isName == d.isName && abs(AngleMath.diff(d.angle, it.meanAngle)) < mergeDeg }
             .minByOrNull { abs(AngleMath.diff(d.angle, it.meanAngle)) }
 }

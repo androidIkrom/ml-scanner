@@ -33,6 +33,7 @@ class HomeFragment : Fragment() {
         binding.cardFull.setOnClickListener { go(HomeFragmentDirections.actionHomeToSettings(ScanMode.FULL)) }
         binding.cardLive.setOnClickListener { go(HomeFragmentDirections.actionHomeToSettings(ScanMode.LIVE)) }
         binding.cardHistory.setOnClickListener { go(HomeFragmentDirections.actionHomeToHistory()) }
+        binding.cardPeople.setOnClickListener { go(HomeFragmentDirections.actionHomeToPeople()) }
     }
 
     override fun onDestroyView() {

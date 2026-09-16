@@ -1,7 +1,14 @@
 package com.classroomscanner.core
 
 /** What the app says about one object group. [angle] is scan-relative degrees. */
-data class ObjectSummary(val label: String, val count: Int, val color: String?, val angle: Float)
+data class ObjectSummary(
+    val label: String,
+    val count: Int,
+    val color: String?,
+    val angle: Float,
+    /** True when [label] is a recognized person's name rather than an object class. */
+    val isName: Boolean = false,
+)
 
 object SummaryBuilder {
 
@@ -27,6 +34,7 @@ object SummaryBuilder {
     }
 
     fun describe(o: ObjectSummary): String {
+        if (o.isName) return o.label
         val colorPart = colorOf(o)?.let { "$it " } ?: ""
         return if (o.count == 1) {
             val phrase = colorPart + o.label
@@ -44,11 +52,12 @@ object SummaryBuilder {
         val parts = Sector4.entries.mapNotNull { sector ->
             val inSector = objects.filter { AngleMath.sector4(it.angle) == sector }
             if (inSector.isEmpty()) return@mapNotNull null
+            // Known people first (in the order given), then object groups, largest first.
             val groups = inSector
-                .groupBy { it.label }
+                .groupBy { it.label to it.isName }
                 .map { (_, group) -> group }
-                .sortedByDescending { group -> group.sumOf { it.count } }
-            groups.joinToString(", ") { describeGroup(it) } + " " + sector.phrase
+                .sortedWith(compareBy({ !it.first().isName }, { group -> -group.sumOf { it.count } }))
+            joinGroups(groups.map { describeGroup(it) }) + " " + sector.phrase
         }
         return prefix + "Around you: " + parts.joinToString("; ") + "."
     }
@@ -59,6 +68,7 @@ object SummaryBuilder {
      */
     private fun describeGroup(group: List<ObjectSummary>): String {
         val first = group.first()
+        if (first.isName) return first.label
         val count = group.sumOf { it.count }
         val colorCounts = LinkedHashMap<String, Int>()
         for (o in group) colorOf(o)?.let { colorCounts[it] = (colorCounts[it] ?: 0) + o.count }
@@ -73,7 +83,15 @@ object SummaryBuilder {
     private fun joinWithAnd(items: List<String>): String =
         if (items.size == 1) items[0] else items.dropLast(1).joinToString(", ") + " and " + items.last()
 
-    private fun colorOf(o: ObjectSummary): String? = o.color?.takeIf { ColorPolicy.hasColor(o.label) }
+    /** "A and B", "A, B and C"; ", and" when a part already contains "and" (e.g. a color list). */
+    private fun joinGroups(parts: List<String>): String {
+        if (parts.size == 1) return parts[0]
+        val separator = if (parts.any { " and " in it }) ", and " else " and "
+        return parts.dropLast(1).joinToString(", ") + separator + parts.last()
+    }
+
+    private fun colorOf(o: ObjectSummary): String? =
+        o.color?.takeIf { !o.isName && ColorPolicy.hasColor(o.label) }
 
     fun livePhrase(o: ObjectSummary): String {
         val phrase = (colorOf(o)?.let { "$it " } ?: "") + o.label
