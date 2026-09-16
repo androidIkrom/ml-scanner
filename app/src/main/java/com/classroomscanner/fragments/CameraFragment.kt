@@ -277,18 +277,25 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         val frame = resultBundle.frame
         val frameIsDark = frame?.let { ColorNamer.isDark(it) } ?: false
 
-        val detections = result.detections().map { d ->
+        val evaluated = result.detections().map { d ->
             val box = d.boundingBox()
             val center = BoxGeometry.horizontalCenter(
                 box.left, box.top, box.right, box.bottom,
                 resultBundle.inputImageWidth, resultBundle.inputImageHeight, resultBundle.inputImageRotation
             )
-            FrameDetection(
+            val detection = FrameDetection(
                 label = d.categories()[0].categoryName(),
                 angle = BoxGeometry.objectAngle(heading, center, hfov),
                 color = frame?.let { ColorNamer.name(it, box, frameIsDark) }
             )
+            val touchesEdge = BoxGeometry.touchesOneSideEdge(
+                box.left, box.top, box.right, box.bottom,
+                resultBundle.inputImageWidth, resultBundle.inputImageHeight, resultBundle.inputImageRotation
+            )
+            detection to touchesEdge
         }
+        val detections = evaluated.map { it.first }
+        val countedDetections = evaluated.filter { !it.second }.map { it.first }
 
         activity?.runOnUiThread {
             val b = _fragmentCameraBinding ?: return@runOnUiThread
@@ -304,7 +311,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             b.overlay.invalidate()
 
             val s = session ?: return@runOnUiThread
-            val phrases = s.onFrame(detections)
+            val phrases = s.onFrame(countedDetections)
             phrases.forEach(speech::announce)
             if (phrases.isNotEmpty()) b.announcement.text = phrases.last()
             updateScanUi(s)

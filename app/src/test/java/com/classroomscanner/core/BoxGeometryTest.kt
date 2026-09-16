@@ -33,4 +33,53 @@ class BoxGeometryTest {
         assertEquals(340f, BoxGeometry.objectAngle(10f, 0f, 60f), eps)
         assertEquals(90f, BoxGeometry.objectAngle(90f, 0.5f, 65f), eps)
     }
+
+    @Test
+    fun touchesOneSideEdge_rotation0_leftEdgeOnly_isTrue() {
+        assertEquals(
+            true,
+            BoxGeometry.touchesOneSideEdge(0f, 0f, 20f, 20f, 400, 300, 0),
+        )
+    }
+
+    @Test
+    fun touchesOneSideEdge_rotation0_rightEdgeOnly_isTrue() {
+        assertEquals(
+            true,
+            BoxGeometry.touchesOneSideEdge(380f, 0f, 400f, 20f, 400, 300, 0),
+        )
+    }
+
+    @Test
+    fun touchesOneSideEdge_rotation0_middle_isFalse() {
+        assertEquals(
+            false,
+            BoxGeometry.touchesOneSideEdge(150f, 0f, 250f, 20f, 400, 300, 0),
+        )
+    }
+
+    @Test
+    fun touchesOneSideEdge_rotation0_spansFullWidth_isFalse() {
+        assertEquals(
+            false,
+            BoxGeometry.touchesOneSideEdge(0f, 0f, 400f, 20f, 400, 300, 0),
+        )
+    }
+
+    @Test
+    fun touchesOneSideEdge_rotation90_topNearZeroMapsToUprightRightEdge_isTrue() {
+        // Unrotated buffer 640x480; top=0 -> upright x fraction 1 - 0/480 = 1 (right edge).
+        assertEquals(
+            true,
+            BoxGeometry.touchesOneSideEdge(0f, 0f, 10f, 10f, 640, 480, 90),
+        )
+    }
+
+    @Test
+    fun touchesOneSideEdge_rotation90_middle_isFalse() {
+        assertEquals(
+            false,
+            BoxGeometry.touchesOneSideEdge(0f, 200f, 10f, 280f, 640, 480, 90),
+        )
+    }
 }

@@ -24,4 +24,41 @@ object BoxGeometry {
 
     fun objectAngle(relHeading: Float, centerNorm: Float, hfovDeg: Float): Float =
         AngleMath.normalize(relHeading + (centerNorm - 0.5f) * hfovDeg)
+
+    /**
+     * True when the box touches exactly one side (left or right) of the UPRIGHT frame,
+     * within [margin] as a 0..1 fraction. A box spanning the whole frame (touching both
+     * sides) or touching neither returns false.
+     */
+    fun touchesOneSideEdge(
+        left: Float, top: Float, right: Float, bottom: Float,
+        imageWidth: Int, imageHeight: Int, rotationDegrees: Int,
+        margin: Float = 0.02f,
+    ): Boolean {
+        val a: Float
+        val b: Float
+        when (rotationDegrees) {
+            90 -> {
+                a = 1f - top / imageHeight
+                b = 1f - bottom / imageHeight
+            }
+            180 -> {
+                a = 1f - left / imageWidth
+                b = 1f - right / imageWidth
+            }
+            270 -> {
+                a = top / imageHeight
+                b = bottom / imageHeight
+            }
+            else -> {
+                a = left / imageWidth
+                b = right / imageWidth
+            }
+        }
+        val minFraction = minOf(a, b)
+        val maxFraction = maxOf(a, b)
+        val touchesLeft = minFraction <= margin
+        val touchesRight = maxFraction >= 1f - margin
+        return touchesLeft != touchesRight
+    }
 }
