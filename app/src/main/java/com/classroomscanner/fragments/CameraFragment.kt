@@ -113,11 +113,13 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     }
 
     override fun onDestroyView() {
-        speech.shutdown()
+        speech.shutdownWhenIdle()
         _fragmentCameraBinding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()
-        backgroundExecutor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)
+        if (!backgroundExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+            Log.w(TAG, "Detector thread still busy after 2 s")
+        }
     }
 
     override fun onCreateView(
@@ -160,7 +162,13 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                 objectDetectorListener = this,
                 runningMode = RunningMode.LIVE_STREAM
             )
-            fragmentCameraBinding.viewFinder.post { setUpCamera() }
+            val b = _fragmentCameraBinding
+            if (b == null) {
+                // The view is gone already; close the detector we just opened.
+                objectDetectorHelper.clearObjectDetector()
+            } else {
+                b.viewFinder.post { if (_fragmentCameraBinding != null) setUpCamera() }
+            }
         }
 
         fragmentCameraBinding.overlay.setRunningMode(RunningMode.LIVE_STREAM)
@@ -175,8 +183,8 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         b.startStop.isEnabled = canStart()
         b.startStop.setOnClickListener { if (session == null) startScan() else stopScan() }
         b.viewText.setOnClickListener {
-            if (childFragmentManager.findFragmentByTag(ScanTextDialog.TAG) == null) {
-                ScanTextDialog().show(childFragmentManager, ScanTextDialog.TAG)
+            if (!childFragmentManager.isStateSaved && childFragmentManager.findFragmentByTag(ScanTextDialog.TAG) == null) {
+                ScanTextDialog().showNow(childFragmentManager, ScanTextDialog.TAG)
             }
         }
         updateBanner()
@@ -281,19 +289,22 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
 
     // Initialize CameraX, and prepare to bind the camera use cases
     private fun setUpCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
+        val context = context ?: return
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener(
             {
+                if (_fragmentCameraBinding == null || !isAdded) return@addListener
                 cameraProvider = cameraProviderFuture.get()
                 bindCameraUseCases()
             },
-            ContextCompat.getMainExecutor(requireContext())
+            ContextCompat.getMainExecutor(context)
         )
     }
 
     // Declare and bind preview and analysis use cases
     @SuppressLint("UnsafeOptInUsageError")
     private fun bindCameraUseCases() {
+        val binding = _fragmentCameraBinding ?: return
         val cameraProvider = cameraProvider
             ?: throw IllegalStateException("Camera initialization failed.")
 
@@ -307,13 +318,13 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         // Only using the 4:3 ratio because this is the closest to our models
         preview = Preview.Builder()
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            .setTargetRotation(fragmentCameraBinding.viewFinder.display.rotation)
+            .setTargetRotation(binding.viewFinder.display.rotation)
             .build()
 
         // Using RGBA 8888 to match how our models work
         imageAnalyzer = ImageAnalysis.Builder()
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            .setTargetRotation(fragmentCameraBinding.viewFinder.display.rotation)
+            .setTargetRotation(binding.viewFinder.display.rotation)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .build()
@@ -324,15 +335,19 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         cameraProvider.unbindAll()
         try {
             camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalyzer)
-            preview?.setSurfaceProvider(fragmentCameraBinding.viewFinder.surfaceProvider)
+            preview?.setSurfaceProvider(binding.viewFinder.surfaceProvider)
         } catch (exc: Exception) {
             Log.e(TAG, "Use case binding failed", exc)
+            binding.announcement.text = getString(R.string.camera_unavailable)
+            scanLog.add(getString(R.string.camera_unavailable))
+            binding.startStop.isEnabled = false
         }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        imageAnalyzer?.targetRotation = fragmentCameraBinding.viewFinder.display.rotation
+        val rotation = _fragmentCameraBinding?.viewFinder?.display?.rotation ?: return
+        imageAnalyzer?.targetRotation = rotation
     }
 
     // Runs on the MediaPipe result thread.
@@ -420,7 +435,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             val b = _fragmentCameraBinding ?: return@runOnUiThread
             Log.e(TAG, error)
             b.announcement.text = error
-            scanLog.add(error)
+            if (scanLog.state.value.entries.lastOrNull()?.text != error) scanLog.add(error)
             if (session == null) b.startStop.isEnabled = false
         }
     }
