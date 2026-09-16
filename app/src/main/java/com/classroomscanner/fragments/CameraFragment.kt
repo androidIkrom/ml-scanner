@@ -24,6 +24,7 @@ import com.classroomscanner.R
 import com.classroomscanner.color.ColorNamer
 import com.classroomscanner.core.BoxGeometry
 import com.classroomscanner.core.ColorPolicy
+import com.classroomscanner.core.DetectionFilter
 import com.classroomscanner.core.FrameDetection
 import com.classroomscanner.core.ScanMode
 import com.classroomscanner.core.ScanSession
@@ -299,11 +300,13 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                 box.left, box.top, box.right, box.bottom,
                 resultBundle.inputImageWidth, resultBundle.inputImageHeight, resultBundle.inputImageRotation
             )
-            val label = d.categories()[0].categoryName()
+            val category = d.categories()[0]
+            val label = category.categoryName()
+            val kept = DetectionFilter.keep(label, category.score())
             val detection = FrameDetection(
                 label = label,
                 angle = BoxGeometry.objectAngle(heading, center, hfov),
-                color = if (frame != null && frameStats != null && ColorPolicy.hasColor(label)) {
+                color = if (kept && frame != null && frameStats != null && ColorPolicy.hasColor(label)) {
                     ColorNamer.name(frame, box, frameStats)
                 } else {
                     null
@@ -313,10 +316,11 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                 box.left, box.top, box.right, box.bottom,
                 resultBundle.inputImageWidth, resultBundle.inputImageHeight, resultBundle.inputImageRotation
             )
-            detection to touchesEdge
+            Evaluated(detection, kept, counted = kept && !touchesEdge)
         }
-        val detections = evaluated.map { it.first }
-        val countedDetections = evaluated.filter { !it.second }.map { it.first }
+        val overlayLabels = evaluated.map { if (it.kept) it.detection.overlayLabel() else null }
+        val countedDetections = evaluated.filter { it.counted }.map { it.detection }
+        logInferenceTime(resultBundle.inferenceTime)
 
         activity?.runOnUiThread {
             val b = _fragmentCameraBinding ?: return@runOnUiThread
@@ -326,7 +330,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                     resultBundle.inputImageHeight,
                     resultBundle.inputImageWidth,
                     resultBundle.inputImageRotation,
-                    detections.map { it.overlayLabel() }
+                    overlayLabels
                 )
             }
             b.overlay.invalidate()
@@ -349,11 +353,25 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         }
     }
 
+    /** One detector output: whether it passes the per-label threshold and whether it is counted. */
+    private class Evaluated(val detection: FrameDetection, val kept: Boolean, val counted: Boolean)
+
+    private var framesSinceTimingLog = 0
+
+    // Runs on the MediaPipe result thread only.
+    private fun logInferenceTime(ms: Long) {
+        if (++framesSinceTimingLog >= TIMING_LOG_EVERY) {
+            framesSinceTimingLog = 0
+            Log.i(TAG, "Inference time: $ms ms")
+        }
+    }
+
     private fun FrameDetection.overlayLabel() = color?.let { "$label · $it" } ?: label
 
     private companion object {
         const val TAG = "ClassroomScanner"
         const val MAX_SPEED_DEG_PER_SEC = 60f
         const val SLOW_DOWN_REPEAT_MS = 5_000L
+        const val TIMING_LOG_EVERY = 30
     }
 }
