@@ -232,6 +232,15 @@ Package root: `com.classroomscanner`. Use whatever UI toolkit the sample uses (F
 - Live scan announces new objects without spamming.
 - History persists across app restarts, and replay works.
 
+## 9a. Decisions made during planning
+
+These override the text above.
+
+- **Room code generation:** use `kapt` instead of KSP, because the sample already applies `kotlin-kapt`.
+- **Color naming frequency:** name the color on every frame, using a Palette crop resized to about 48×48 px. Add throttling only if the frame rate drops.
+- **Permission screen:** show text and a Grant button only, with no spoken hint.
+- **Orientation:** lock the app to portrait, because the heading and field-of-view math assume portrait.
+
 ## 10. Stretch goals (only if time remains)
 
 1. Fine-tune YOLO11n or MediaPipe Model Maker on classroom datasets (whiteboard, projector, desk) using the laptop GPU, export to `.tflite`, and swap it in.

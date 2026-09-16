@@ -25,7 +25,7 @@ The user turns 360° holding the phone. The app detects objects on-device with M
 
 ## Commands (PowerShell, from repo root)
 
-The Android project root may be a subfolder after the sample is imported. Check the plan.
+The Android project root is the repo root; `gradlew.bat` is placed there in plan Task 1.
 
 ```powershell
 .\gradlew.bat testDebugUnitTest          # JVM unit tests (core)
