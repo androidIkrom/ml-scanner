@@ -6,6 +6,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.classroomscanner.R
+import com.classroomscanner.core.ScanMode
 import com.classroomscanner.databinding.ItemScanBinding
 import java.text.DateFormat
 import java.util.Date
@@ -22,8 +23,12 @@ class HistoryAdapter(private val onPlay: (ScanEntity) -> Unit) :
         val scan = getItem(position)
         val context = holder.itemView.context
         val date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(scan.startedAt))
-        holder.binding.title.text = context.getString(R.string.history_item_title, date, scan.mode, scan.coveragePercent)
+        holder.binding.mode.text = context.getString(
+            if (scan.mode == ScanMode.LIVE.name) R.string.mode_live_short else R.string.mode_full_short
+        )
+        holder.binding.title.text = context.getString(R.string.history_item_title, date, scan.coveragePercent)
         holder.binding.summary.text = scan.summaryText
+        holder.binding.play.contentDescription = context.getString(R.string.play_scan, date)
         holder.binding.play.setOnClickListener { onPlay(scan) }
     }
 

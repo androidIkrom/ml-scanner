@@ -1,27 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    ~ Copyright 2022 The TensorFlow Authors. All Rights Reserved.
-    ~
-    ~ Licensed under the Apache License, Version 2.0 (the "License");
-    ~ you may not use this file except in compliance with the License.
-    ~ You may obtain a copy of the License at
-    ~
-    ~       http://www.apache.org/licenses/LICENSE-2.0
-    ~
-    ~ Unless required by applicable law or agreed to in writing, software
-    ~ distributed under the License is distributed on an "AS IS" BASIS,
-    ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    ~ See the License for the specific language governing permissions and
-    ~ limitations under the License.
--->
 <resources>
+    <!-- Detection box color (OverlayView). -->
     <color name="mp_primary">#007F8B</color>
-    <color name="mp_variant">#12B5CB</color>
-    <color name="toolbar_background">#EEEEEE</color>
+
+    <!-- Material 3 light scheme, seeded from teal #007F8B. -->
+    <color name="md_primary">#006A74</color>
+    <color name="md_on_primary">#FFFFFF</color>
+    <color name="md_primary_container">#9EEFFB</color>
+    <color name="md_on_primary_container">#001F24</color>
+    <color name="md_secondary">#4A6267</color>
+    <color name="md_on_secondary">#FFFFFF</color>
+    <color name="md_secondary_container">#CDE7EC</color>
+    <color name="md_on_secondary_container">#051F23</color>
+    <color name="md_tertiary">#525E7D</color>
+    <color name="md_on_tertiary">#FFFFFF</color>
+    <color name="md_tertiary_container">#DAE2FF</color>
+    <color name="md_on_tertiary_container">#0E1B37</color>
+    <color name="md_error">#BA1A1A</color>
+    <color name="md_on_error">#FFFFFF</color>
+    <color name="md_error_container">#FFDAD6</color>
+    <color name="md_on_error_container">#410002</color>
+    <color name="md_background">#F5FAFB</color>
+    <color name="md_on_background">#171D1E</color>
+    <color name="md_surface">#F5FAFB</color>
+    <color name="md_on_surface">#171D1E</color>
+    <color name="md_surface_variant">#DBE4E6</color>
+    <color name="md_on_surface_variant">#3F484A</color>
+    <color name="md_outline">#6F797A</color>
+    <color name="md_outline_variant">#BFC8CA</color>
+    <color name="md_surface_container_lowest">#FFFFFF</color>
+    <color name="md_surface_container_low">#EFF5F6</color>
+    <color name="md_surface_container">#E9EFF0</color>
+    <color name="md_surface_container_high">#E3E9EA</color>
+    <color name="md_surface_container_highest">#DEE3E5</color>
+
+    <!-- Coverage ring track on a light card. -->
+    <color name="ring_track">#DBE4E6</color>
+
     <color name="ic_launcher_background">#FFFFFF</color>
-    <color name="bottom_sheet_background">#EEEEEE</color>
-    <color name="bottom_sheet_text_color">@android:color/black</color>
-    <color name="icActive">#FFFFFFFF</color>
-    <color name="icFocused">#DDFFFFFF</color>
-    <color name="icPressed">#AAFFFFFF</color>
 </resources>

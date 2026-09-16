@@ -1,6 +1,7 @@
 package com.classroomscanner.fragments
 
 import android.annotation.SuppressLint
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.os.Bundle
 import android.util.Log
@@ -31,6 +32,7 @@ import com.classroomscanner.history.HistoryRepository
 import com.classroomscanner.sensor.CameraFov
 import com.classroomscanner.sensor.HeadingProvider
 import com.classroomscanner.speech.SpeechAnnouncer
+import com.google.android.material.color.MaterialColors
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -148,7 +150,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         relHeading = 0f
         headingProvider.start()
 
-        b.startStop.text = getString(R.string.stop)
+        showRunning(true)
         b.modeFull.isEnabled = false
         b.modeLive.isEnabled = false
         b.coverageRing.reset()
@@ -172,7 +174,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
 
         _fragmentCameraBinding?.let { b ->
             b.announcement.text = result.summaryText
-            b.startStop.text = getString(R.string.start)
+            showRunning(false)
             b.modeFull.isEnabled = headingProvider.isAvailable
             b.modeLive.isEnabled = true
         }
@@ -187,8 +189,21 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             compassLow -> getString(R.string.banner_calibrate)
             else -> null
         }
-        b.banner.text = text
-        b.banner.isVisible = text != null
+        if (b.banner.text?.toString() != text) b.banner.text = text
+        b.bannerCard.isVisible = text != null
+    }
+
+    /** Start is a filled primary button; Stop turns it red so the running state is obvious. */
+    private fun showRunning(running: Boolean) {
+        val button = fragmentCameraBinding.startStop
+        val container = if (running) com.google.android.material.R.attr.colorError else com.google.android.material.R.attr.colorPrimary
+        val content = if (running) com.google.android.material.R.attr.colorOnError else com.google.android.material.R.attr.colorOnPrimary
+        val onColor = MaterialColors.getColor(button, content)
+        button.text = getString(if (running) R.string.stop else R.string.start)
+        button.setIconResource(if (running) R.drawable.ic_stop_24 else R.drawable.ic_play_24)
+        button.backgroundTintList = ColorStateList.valueOf(MaterialColors.getColor(button, container))
+        button.setTextColor(onColor)
+        button.iconTint = ColorStateList.valueOf(onColor)
     }
 
     private fun updateScanUi(s: ScanSession) {
