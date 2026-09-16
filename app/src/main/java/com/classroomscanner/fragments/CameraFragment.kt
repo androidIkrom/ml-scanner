@@ -95,6 +95,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         }
         backgroundExecutor.execute {
             if (objectDetectorHelper.isClosed()) {
+                if (gpuFallbackStarted) objectDetectorHelper.currentDelegate = ObjectDetectorHelper.DELEGATE_CPU
                 objectDetectorHelper.setupObjectDetector()
             }
             if (!objectDetectorHelper.isClosed()) {
@@ -139,6 +140,8 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         history = HistoryRepository(AppDatabase.get(context).scanDao())
         hfov = CameraFov.portraitHorizontalFov(context, settings.camera)
         Log.i(TAG, "Settings: $settings, horizontal FOV: $hfov")
+        gpuFallbackStarted = false
+        if (savedInstanceState == null) scanLog.start()
 
         backgroundExecutor = Executors.newSingleThreadExecutor()
         backgroundExecutor.execute {
@@ -187,7 +190,8 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         session = ScanSession(args.mode, System.currentTimeMillis())
         relHeading = 0f
         headingProvider.start()
-        scanLog.start()
+        // A finished earlier scan is cleared; notes from before the first scan (like the GPU message) stay.
+        if (scanLog.state.value.summary != null) scanLog.start()
 
         showRunning(true)
         b.coverageRing.reset()
@@ -391,14 +395,18 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         if (errorCode == ObjectDetectorHelper.GPU_ERROR && settings.compute == Compute.GPU && !gpuFallbackStarted) {
             gpuFallbackStarted = true
             Log.w(TAG, "GPU detector failed, falling back to CPU: $error")
-            if (!backgroundExecutor.isShutdown) {
+            try {
                 backgroundExecutor.execute {
                     objectDetectorHelper.currentDelegate = ObjectDetectorHelper.DELEGATE_CPU
-                    objectDetectorHelper.setupObjectDetector()
+                    if (objectDetectorHelper.isClosed()) {
+                        objectDetectorHelper.setupObjectDetector()
+                    }
                     if (!objectDetectorHelper.isClosed()) {
                         activity?.runOnUiThread { _fragmentCameraBinding?.startStop?.isEnabled = canStart() }
                     }
                 }
+            } catch (e: java.util.concurrent.RejectedExecutionException) {
+                Log.w(TAG, "Scanner closed before GPU fallback", e)
             }
             activity?.runOnUiThread {
                 if (_fragmentCameraBinding == null) return@runOnUiThread
