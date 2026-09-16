@@ -35,6 +35,13 @@ class BoxGeometryTest {
     }
 
     @Test
+    fun frontCameraLooksBackward() {
+        assertEquals(180f, BoxGeometry.objectAngle(0f, 0.5f, 60f, CameraFacing.FRONT), eps)
+        assertEquals(220f, BoxGeometry.objectAngle(10f, 1f, 60f, CameraFacing.FRONT), eps)
+        assertEquals(140f, BoxGeometry.objectAngle(350f, 0f, 60f, CameraFacing.FRONT), eps)
+    }
+
+    @Test
     fun touchesOneSideEdge_rotation0_leftEdgeOnly_isTrue() {
         assertEquals(
             true,

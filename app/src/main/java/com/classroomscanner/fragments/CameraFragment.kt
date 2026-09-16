@@ -58,6 +58,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     private lateinit var speech: SpeechAnnouncer
     private lateinit var history: HistoryRepository
     private var hfov = CameraFov.FALLBACK_DEG
+    private val detectionFilter = DetectionFilter()
 
     // Main thread only.
     private var session: ScanSession? = null
@@ -302,7 +303,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             )
             val category = d.categories()[0]
             val label = category.categoryName()
-            val kept = DetectionFilter.keep(label, category.score())
+            val kept = detectionFilter.keep(label, category.score())
             val detection = FrameDetection(
                 label = label,
                 angle = BoxGeometry.objectAngle(heading, center, hfov),

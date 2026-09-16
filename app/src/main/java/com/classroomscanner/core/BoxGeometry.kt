@@ -22,8 +22,16 @@ object BoxGeometry {
         return fraction.coerceIn(0f, 1f)
     }
 
-    fun objectAngle(relHeading: Float, centerNorm: Float, hfovDeg: Float): Float =
-        AngleMath.normalize(relHeading + (centerNorm - 0.5f) * hfovDeg)
+    /** The front camera looks backward when the phone is upright, so its base direction is turned by 180°. */
+    fun objectAngle(
+        relHeading: Float,
+        centerNorm: Float,
+        hfovDeg: Float,
+        facing: CameraFacing = CameraFacing.BACK,
+    ): Float {
+        val base = if (facing == CameraFacing.FRONT) relHeading + 180f else relHeading
+        return AngleMath.normalize(base + (centerNorm - 0.5f) * hfovDeg)
+    }
 
     /**
      * True when the box touches exactly one side (left or right) of the UPRIGHT frame,
