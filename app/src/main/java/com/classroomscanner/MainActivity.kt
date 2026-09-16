@@ -39,7 +39,8 @@ class MainActivity : AppCompatActivity() {
 
         ViewCompat.setOnApplyWindowInsetsListener(activityMainBinding.root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            // BottomNavigationView pads itself for the navigation bar, so only the other edges go here.
+            v.setPadding(bars.left, bars.top, bars.right, 0)
             insets
         }
 

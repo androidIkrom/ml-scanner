@@ -3,7 +3,8 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/camera_container"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
 
     <androidx.camera.view.PreviewView
         android:id="@+id/view_finder"
@@ -16,91 +17,131 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <TextView
-        android:id="@+id/banner"
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/banner_card"
+        style="?attr/materialCardViewFilledStyle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:accessibilityLiveRegion="assertive"
-        android:background="#CCB00020"
-        android:padding="12dp"
-        android:textColor="@android:color/white"
-        android:textSize="18sp"
-        android:visibility="gone" />
+        android:layout_margin="12dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="?attr/colorErrorContainer"
+        app:cardCornerRadius="16dp">
 
-    <LinearLayout
+        <TextView
+            android:id="@+id/banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="assertive"
+            android:drawablePadding="12dp"
+            android:gravity="center_vertical"
+            android:minHeight="48dp"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="12dp"
+            android:textAppearance="?attr/textAppearanceTitleSmall"
+            android:textColor="?attr/colorOnErrorContainer"
+            app:drawableStartCompat="@drawable/ic_warning_24"
+            app:drawableTint="?attr/colorOnErrorContainer" />
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/controls"
+        style="?attr/materialCardViewElevatedStyle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#B3000000"
-        android:orientation="vertical"
-        android:padding="12dp">
+        android:layout_margin="12dp"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerLowest"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="6dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <com.classroomscanner.ui.CoverageRingView
-                android:id="@+id/coverage_ring"
-                android:layout_width="88dp"
-                android:layout_height="88dp" />
+            android:orientation="vertical"
+            android:padding="16dp">
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-                <RadioGroup
-                    android:id="@+id/mode_group"
-                    android:layout_width="wrap_content"
+                <com.classroomscanner.ui.CoverageRingView
+                    android:id="@+id/coverage_ring"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:layout_marginStart="16dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
-                    <RadioButton
-                        android:id="@+id/mode_full"
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/mode_group"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:checkedButton="@id/mode_full"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/mode_full"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:minHeight="48dp"
+                            android:text="@string/mode_full" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/mode_live"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:minHeight="48dp"
+                            android:text="@string/mode_live" />
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                    <TextView
+                        android:id="@+id/object_count"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:checked="true"
-                        android:text="@string/mode_full"
-                        android:textColor="@android:color/white" />
-
-                    <RadioButton
-                        android:id="@+id/mode_live"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/mode_live"
-                        android:textColor="@android:color/white" />
-                </RadioGroup>
-
-                <TextView
-                    android:id="@+id/object_count"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="@android:color/white"
-                    android:textSize="16sp" />
+                        android:layout_marginTop="8dp"
+                        android:textAppearance="?attr/textAppearanceTitleMedium"
+                        android:textColor="?attr/colorOnSurface" />
+                </LinearLayout>
             </LinearLayout>
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/start_stop"
-                android:layout_width="wrap_content"
+                style="@style/Widget.App.Button.Large"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:minHeight="64dp"
-                android:minWidth="96dp"
-                android:text="@string/start" />
-        </LinearLayout>
+                android:layout_marginTop="16dp"
+                android:text="@string/start"
+                app:icon="@drawable/ic_play_24" />
 
-        <TextView
-            android:id="@+id/announcement"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:accessibilityLiveRegion="polite"
-            android:textColor="@android:color/white"
-            android:textSize="16sp" />
-    </LinearLayout>
+            <TextView
+                android:id="@+id/announcement"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:accessibilityLiveRegion="polite"
+                android:background="@drawable/bg_announcement"
+                android:drawablePadding="12dp"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="12dp"
+                android:text="@string/hint_idle"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:textColor="?attr/colorOnSurface"
+                app:drawableStartCompat="@drawable/ic_graphic_eq_24"
+                app:drawableTint="?attr/colorPrimary" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

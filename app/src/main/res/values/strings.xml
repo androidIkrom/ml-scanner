@@ -8,15 +8,22 @@
     <string name="start">Start</string>
     <string name="stop">Stop</string>
     <string name="objects_count">Objects: %d</string>
+    <string name="hint_idle">Choose a mode and press Start.</string>
     <string name="hint_full">Turn slowly in a full circle.</string>
     <string name="hint_live">Turn slowly. I will tell you what I find.</string>
     <string name="banner_slow_down">Slow down.</string>
     <string name="banner_calibrate">Calibrate compass: move the phone in a figure 8.</string>
     <string name="banner_no_compass">No rotation sensor: Full Scan is disabled.</string>
     <string name="permission_explanation">Classroom Scanner needs the camera to find objects around you. Images never leave your phone.</string>
+    <string name="permission_title">Camera access needed</string>
     <string name="grant">Grant camera access</string>
     <string name="history_empty">No scans yet.</string>
+    <string name="history_empty_hint">Finished scans appear here, and you can play them again.</string>
     <string name="play">Play</string>
-    <string name="history_item_title">%1$s · %2$s · %3$d%%</string>
+    <string name="play_scan">Play scan from %1$s</string>
+    <string name="coverage_description">Room coverage %1$d percent</string>
+    <string name="history_item_title">%1$s · %2$d%% covered</string>
+    <string name="mode_full_short">Full</string>
+    <string name="mode_live_short">Live</string>
     <string name="tts_unavailable">Speech is not available on this phone.</string>
 </resources>

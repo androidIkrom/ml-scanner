@@ -1,25 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/white"
+    android:background="?attr/colorSurface"
     android:gravity="center"
     android:orientation="vertical"
-    android:padding="24dp">
+    android:padding="32dp">
+
+    <FrameLayout
+        android:layout_width="112dp"
+        android:layout_height="112dp"
+        android:background="@drawable/bg_icon_circle">
+
+        <ImageView
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_baseline_photo_camera_24"
+            app:tint="?attr/colorOnPrimaryContainer" />
+    </FrameLayout>
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
         android:gravity="center"
-        android:text="@string/permission_explanation"
-        android:textColor="@android:color/black"
-        android:textSize="18sp" />
+        android:text="@string/permission_title"
+        android:textAppearance="?attr/textAppearanceHeadlineSmall"
+        android:textColor="?attr/colorOnSurface" />
 
-    <Button
-        android:id="@+id/grant_button"
+    <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:minHeight="64dp"
+        android:layout_marginTop="12dp"
+        android:gravity="center"
+        android:text="@string/permission_explanation"
+        android:textAppearance="?attr/textAppearanceBodyLarge"
+        android:textColor="?attr/colorOnSurfaceVariant" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/grant_button"
+        style="@style/Widget.App.Button.Large"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
         android:text="@string/grant" />
 </LinearLayout>
