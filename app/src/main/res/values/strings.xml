@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Classroom Scanner</string>
+    <string name="menu_scan">Scan</string>
+    <string name="menu_history">History</string>
+    <string name="mode_full">Full Scan</string>
+    <string name="mode_live">Live Scan</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="objects_count">Objects: %d</string>
+    <string name="hint_full">Turn slowly in a full circle.</string>
+    <string name="hint_live">Turn slowly. I will tell you what I find.</string>
+    <string name="banner_slow_down">Slow down.</string>
+    <string name="banner_calibrate">Calibrate compass: move the phone in a figure 8.</string>
+    <string name="banner_no_compass">No rotation sensor: Full Scan is disabled.</string>
+    <string name="permission_explanation">Classroom Scanner needs the camera to find objects around you. Images never leave your phone.</string>
+    <string name="grant">Grant camera access</string>
+    <string name="history_empty">No scans yet.</string>
+    <string name="play">Play</string>
+    <string name="history_item_title">%1$s · %2$s · %3$d%%</string>
+    <string name="tts_unavailable">Speech is not available on this phone.</string>
+</resources>
