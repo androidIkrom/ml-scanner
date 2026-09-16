@@ -23,6 +23,7 @@ import com.classroomscanner.ObjectDetectorHelper
 import com.classroomscanner.R
 import com.classroomscanner.color.ColorNamer
 import com.classroomscanner.core.BoxGeometry
+import com.classroomscanner.core.ColorPolicy
 import com.classroomscanner.core.FrameDetection
 import com.classroomscanner.core.ScanMode
 import com.classroomscanner.core.ScanSession
@@ -290,7 +291,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         val result = resultBundle.results[0]
         val heading = relHeading
         val frame = resultBundle.frame
-        val frameIsDark = frame?.let { ColorNamer.isDark(it) } ?: false
+        val frameStats = frame?.let { ColorNamer.frameStats(it) }
 
         val evaluated = result.detections().map { d ->
             val box = d.boundingBox()
@@ -298,10 +299,15 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                 box.left, box.top, box.right, box.bottom,
                 resultBundle.inputImageWidth, resultBundle.inputImageHeight, resultBundle.inputImageRotation
             )
+            val label = d.categories()[0].categoryName()
             val detection = FrameDetection(
-                label = d.categories()[0].categoryName(),
+                label = label,
                 angle = BoxGeometry.objectAngle(heading, center, hfov),
-                color = frame?.let { ColorNamer.name(it, box, frameIsDark) }
+                color = if (frame != null && frameStats != null && ColorPolicy.hasColor(label)) {
+                    ColorNamer.name(frame, box, frameStats)
+                } else {
+                    null
+                }
             )
             val touchesEdge = BoxGeometry.touchesOneSideEdge(
                 box.left, box.top, box.right, box.bottom,
