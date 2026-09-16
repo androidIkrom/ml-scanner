@@ -45,4 +45,10 @@
         <item name="iconGravity">textStart</item>
         <item name="iconSize">24dp</item>
     </style>
+
+    <!-- View text: a full-screen window over the scanner so the scan keeps running. -->
+    <style name="Theme.App.FullScreenDialog" parent="AppTheme">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@color/md_surface</item>
+    </style>
 </resources>
