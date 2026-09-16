@@ -39,7 +39,7 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
     private var outputHeight = 0
     private var outputRotate = 0
     private var runningMode: RunningMode = RunningMode.IMAGE
-    private var labels: List<String>? = null
+    private var labels: List<String?>? = null
 
     init {
         initPaints()
@@ -99,6 +99,8 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
             matrix.mapRect(boxRect)
             boxRect
         }?.forEachIndexed { index, floats ->
+            // With custom labels, a null entry means the detection was filtered out: do not draw it.
+            val customLabel = labels?.let { it.getOrNull(index) ?: return@forEachIndexed }
 
             val top = floats.top * scaleFactor
             val bottom = floats.bottom * scaleFactor
@@ -111,7 +113,7 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
 
             // Create text to display alongside detected objects
             val category = results?.detections()!![index].categories()[0]
-            val drawableText = labels?.getOrNull(index)
+            val drawableText = customLabel
                 ?: (category.categoryName() + " " + String.format("%.2f", category.score()))
 
             // Draw rect behind display text
@@ -146,7 +148,7 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
         outputHeight: Int,
         outputWidth: Int,
         imageRotation: Int,
-        labels: List<String>? = null
+        labels: List<String?>? = null
     ) {
         this.labels = labels
         results = detectionResults

@@ -23,6 +23,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.camera.core.ImageProxy
+import com.classroomscanner.core.DetectionFilter
 import com.google.mediapipe.framework.image.BitmapExtractor
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.MPImage
@@ -37,7 +38,7 @@ class ObjectDetectorHelper(
     var threshold: Float = THRESHOLD_DEFAULT,
     var maxResults: Int = MAX_RESULTS_DEFAULT,
     var currentDelegate: Int = DELEGATE_CPU,
-    var currentModel: Int = MODEL_EFFICIENTDETV0,
+    var currentModel: Int = MODEL_EFFICIENTDETV2,
     var runningMode: RunningMode = RunningMode.IMAGE,
     val context: Context,
     // The listener is only used when running in RunningMode.LIVE_STREAM
@@ -352,7 +353,7 @@ class ObjectDetectorHelper(
         const val MODEL_EFFICIENTDETV0 = 0
         const val MODEL_EFFICIENTDETV2 = 1
         const val MAX_RESULTS_DEFAULT = 10
-        const val THRESHOLD_DEFAULT = 0.5F
+        const val THRESHOLD_DEFAULT = DetectionFilter.DETECTOR_THRESHOLD
         const val OTHER_ERROR = 0
         const val GPU_ERROR = 1
 
