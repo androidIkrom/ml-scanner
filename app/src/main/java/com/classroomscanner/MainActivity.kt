@@ -39,21 +39,13 @@ class MainActivity : AppCompatActivity() {
 
         ViewCompat.setOnApplyWindowInsetsListener(activityMainBinding.root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            // BottomNavigationView pads itself for the navigation bar, so only the other edges go here.
-            v.setPadding(bars.left, bars.top, bars.right, 0)
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
 
         val navHostFragment =
             supportFragmentManager.findFragmentById(R.id.fragment_container) as NavHostFragment
-        val navController = navHostFragment.navController
-        activityMainBinding.navigation.setupWithNavController(navController)
-        activityMainBinding.navigation.setOnNavigationItemReselectedListener {
-            // ignore the reselection
-        }
-    }
-
-    override fun onBackPressed() {
-        finish()
+        // Titles come from destination labels; every screen except Home gets a back arrow.
+        activityMainBinding.toolbar.setupWithNavController(navHostFragment.navController)
     }
 }

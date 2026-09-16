@@ -18,7 +18,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
-import androidx.navigation.Navigation
+import androidx.navigation.fragment.findNavController
 import com.classroomscanner.ObjectDetectorHelper
 import com.classroomscanner.R
 import com.classroomscanner.color.ColorNamer
@@ -73,8 +73,8 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     override fun onResume() {
         super.onResume()
         if (!PermissionsFragment.hasPermissions(requireContext())) {
-            Navigation.findNavController(requireActivity(), R.id.fragment_container)
-                .navigate(CameraFragmentDirections.actionCameraToPermissions())
+            findNavController().popBackStack()
+            return
         }
         backgroundExecutor.execute {
             if (objectDetectorHelper.isClosed()) {
