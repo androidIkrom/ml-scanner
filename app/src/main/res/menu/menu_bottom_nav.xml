@@ -4,4 +4,8 @@
         android:id="@id/camera_fragment"
         android:icon="@drawable/ic_baseline_photo_camera_24"
         android:title="@string/menu_scan" />
+    <item
+        android:id="@id/history_fragment"
+        android:icon="@drawable/ic_baseline_photo_library_24"
+        android:title="@string/menu_history" />
 </menu>

@@ -44,4 +44,9 @@
             app:popUpToInclusive="true" />
 
     </fragment>
+
+    <fragment
+        android:id="@+id/history_fragment"
+        android:name="com.classroomscanner.fragments.HistoryFragment"
+        android:label="HistoryFragment" />
 </navigation>
