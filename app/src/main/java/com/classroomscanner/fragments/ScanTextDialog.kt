@@ -1,7 +1,9 @@
 package com.classroomscanner.fragments
 
+import android.app.Dialog
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.ViewCompat
@@ -13,6 +15,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.classroomscanner.MainActivity
 import com.classroomscanner.R
 import com.classroomscanner.databinding.DialogScanTextBinding
 import com.classroomscanner.scanlog.LogAdapter
@@ -30,6 +33,15 @@ class ScanTextDialog : DialogFragment() {
         super.onCreate(savedInstanceState)
         setStyle(STYLE_NORMAL, R.style.Theme_App_FullScreenDialog)
     }
+
+    /** This window is separate from the activity, so its touches are passed to the voice guide here. */
+    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog =
+        object : Dialog(requireContext(), theme) {
+            override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+                window?.let { w -> (activity as? MainActivity)?.voiceGuide?.onTouch(w.decorView, ev) }
+                return super.dispatchTouchEvent(ev)
+            }
+        }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = DialogScanTextBinding.inflate(inflater, container, false)
