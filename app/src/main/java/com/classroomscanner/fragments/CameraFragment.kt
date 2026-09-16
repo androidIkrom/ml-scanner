@@ -304,7 +304,9 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             b.overlay.invalidate()
 
             val s = session ?: return@runOnUiThread
-            s.onFrame(detections).forEach(speech::announce)
+            val phrases = s.onFrame(detections)
+            phrases.forEach(speech::announce)
+            if (phrases.isNotEmpty()) b.announcement.text = phrases.last()
             updateScanUi(s)
             if (s.shouldAutoStop(System.currentTimeMillis())) stopScan()
         }
