@@ -3,5 +3,5 @@
     <item
         android:id="@id/camera_fragment"
         android:icon="@drawable/ic_baseline_photo_camera_24"
-        android:title="@string/menu_camera" />
+        android:title="@string/menu_scan" />
 </menu>

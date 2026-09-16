@@ -1,18 +1,3 @@
-/*
- * Copyright 2022 The TensorFlow Authors. All Rights Reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *             http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package com.classroomscanner.fragments
 
 import android.annotation.SuppressLint
@@ -22,8 +7,6 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.AdapterView
-import android.widget.Toast
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -32,29 +15,35 @@ import androidx.camera.core.ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.Navigation
-import com.classroomscanner.MainViewModel
 import com.classroomscanner.ObjectDetectorHelper
 import com.classroomscanner.R
+import com.classroomscanner.color.ColorNamer
+import com.classroomscanner.core.BoxGeometry
+import com.classroomscanner.core.FrameDetection
+import com.classroomscanner.core.ScanMode
+import com.classroomscanner.core.ScanSession
 import com.classroomscanner.databinding.FragmentCameraBinding
+import com.classroomscanner.history.AppDatabase
+import com.classroomscanner.history.HistoryRepository
+import com.classroomscanner.sensor.CameraFov
+import com.classroomscanner.sensor.HeadingProvider
+import com.classroomscanner.speech.SpeechAnnouncer
 import com.google.mediapipe.tasks.vision.core.RunningMode
+import kotlinx.coroutines.launch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
-
-    private val TAG = "ObjectDetection"
+class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, HeadingProvider.Listener {
 
     private var _fragmentCameraBinding: FragmentCameraBinding? = null
-
-    private val fragmentCameraBinding
-        get() = _fragmentCameraBinding!!
+    private val fragmentCameraBinding get() = _fragmentCameraBinding!!
 
     private lateinit var objectDetectorHelper: ObjectDetectorHelper
-    private val viewModel: MainViewModel by activityViewModels()
     private var preview: Preview? = null
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
@@ -63,18 +52,27 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     /** Blocking ML operations are performed using this executor */
     private lateinit var backgroundExecutor: ExecutorService
 
+    private lateinit var headingProvider: HeadingProvider
+    private lateinit var speech: SpeechAnnouncer
+    private lateinit var history: HistoryRepository
+    private var hfov = CameraFov.FALLBACK_DEG
+
+    // Main thread only.
+    private var session: ScanSession? = null
+    private var tooFast = false
+    private var compassLow = false
+    private var lastSlowDownSpokenAt = 0L
+
+    // Written on the main thread, read on the detector thread.
+    @Volatile
+    private var relHeading = 0f
+
     override fun onResume() {
         super.onResume()
-        // Make sure that all permissions are still present, since the
-        // user could have removed them while the app was in paused state.
         if (!PermissionsFragment.hasPermissions(requireContext())) {
-            Navigation.findNavController(
-                requireActivity(),
-                R.id.fragment_container
-            )
+            Navigation.findNavController(requireActivity(), R.id.fragment_container)
                 .navigate(CameraFragmentDirections.actionCameraToPermissions())
         }
-
         backgroundExecutor.execute {
             if (objectDetectorHelper.isClosed()) {
                 objectDetectorHelper.setupObjectDetector()
@@ -84,29 +82,18 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
 
     override fun onPause() {
         super.onPause()
-
-        // save ObjectDetector settings
-        if(this::objectDetectorHelper.isInitialized) {
-            viewModel.setModel(objectDetectorHelper.currentModel)
-            viewModel.setDelegate(objectDetectorHelper.currentDelegate)
-            viewModel.setThreshold(objectDetectorHelper.threshold)
-            viewModel.setMaxResults(objectDetectorHelper.maxResults)
-            // Close the object detector and release resources
+        stopScan()
+        if (this::objectDetectorHelper.isInitialized) {
             backgroundExecutor.execute { objectDetectorHelper.clearObjectDetector() }
         }
-
     }
 
     override fun onDestroyView() {
+        speech.shutdown()
         _fragmentCameraBinding = null
         super.onDestroyView()
-
-        // Shut down our background executor.
         backgroundExecutor.shutdown()
-        backgroundExecutor.awaitTermination(
-            Long.MAX_VALUE,
-            TimeUnit.NANOSECONDS
-        )
+        backgroundExecutor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)
     }
 
     override fun onCreateView(
@@ -114,219 +101,163 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _fragmentCameraBinding =
-            FragmentCameraBinding.inflate(inflater, container, false)
-
+        _fragmentCameraBinding = FragmentCameraBinding.inflate(inflater, container, false)
         return fragmentCameraBinding.root
     }
 
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        val context = requireContext()
+        headingProvider = HeadingProvider(context, this)
+        speech = SpeechAnnouncer(context)
+        history = HistoryRepository(AppDatabase.get(context).scanDao())
+        hfov = CameraFov.portraitHorizontalFov(context)
+        Log.i(TAG, "Horizontal FOV: $hfov")
 
-        // Initialize our background executor
         backgroundExecutor = Executors.newSingleThreadExecutor()
-
-        // Create the ObjectDetectionHelper that will handle the inference
         backgroundExecutor.execute {
-            objectDetectorHelper =
-                ObjectDetectorHelper(
-                    context = requireContext(),
-                    threshold = viewModel.currentThreshold,
-                    currentDelegate = viewModel.currentDelegate,
-                    currentModel = viewModel.currentModel,
-                    maxResults = viewModel.currentMaxResults,
-                    objectDetectorListener = this,
-                    runningMode = RunningMode.LIVE_STREAM
-                )
-
-            // Wait for the views to be properly laid out
-            fragmentCameraBinding.viewFinder.post {
-                // Set up the camera and its use cases
-                setUpCamera()
-            }
+            objectDetectorHelper = ObjectDetectorHelper(
+                context = context,
+                objectDetectorListener = this,
+                runningMode = RunningMode.LIVE_STREAM
+            )
+            fragmentCameraBinding.viewFinder.post { setUpCamera() }
         }
 
-        // Attach listeners to UI control widgets
-        initBottomSheetControls()
         fragmentCameraBinding.overlay.setRunningMode(RunningMode.LIVE_STREAM)
+        initScanControls()
     }
 
-    private fun initBottomSheetControls() {
-        // Init bottom sheet settings
-        fragmentCameraBinding.bottomSheetLayout.maxResultsValue.text =
-            viewModel.currentMaxResults.toString()
-        fragmentCameraBinding.bottomSheetLayout.thresholdValue.text =
-            String.format("%.2f", viewModel.currentThreshold)
-
-        // When clicked, lower detection score threshold floor
-        fragmentCameraBinding.bottomSheetLayout.thresholdMinus.setOnClickListener {
-            if (objectDetectorHelper.threshold >= 0.1) {
-                objectDetectorHelper.threshold -= 0.1f
-                updateControlsUi()
-            }
+    private fun initScanControls() {
+        val b = fragmentCameraBinding
+        if (!headingProvider.isAvailable) {
+            b.modeFull.isEnabled = false
+            b.modeLive.isChecked = true
         }
-
-        // When clicked, raise detection score threshold floor
-        fragmentCameraBinding.bottomSheetLayout.thresholdPlus.setOnClickListener {
-            if (objectDetectorHelper.threshold <= 0.8) {
-                objectDetectorHelper.threshold += 0.1f
-                updateControlsUi()
-            }
-        }
-
-        // When clicked, reduce the number of objects that can be detected at a time
-        fragmentCameraBinding.bottomSheetLayout.maxResultsMinus.setOnClickListener {
-            if (objectDetectorHelper.maxResults > 1) {
-                objectDetectorHelper.maxResults--
-                updateControlsUi()
-            }
-        }
-
-        // When clicked, increase the number of objects that can be detected at a time
-        fragmentCameraBinding.bottomSheetLayout.maxResultsPlus.setOnClickListener {
-            if (objectDetectorHelper.maxResults < 5) {
-                objectDetectorHelper.maxResults++
-                updateControlsUi()
-            }
-        }
-
-        // When clicked, change the underlying hardware used for inference. Current options are CPU
-        // GPU, and NNAPI
-        fragmentCameraBinding.bottomSheetLayout.spinnerDelegate.setSelection(
-            viewModel.currentDelegate,
-            false
-        )
-        fragmentCameraBinding.bottomSheetLayout.spinnerDelegate.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(
-                    p0: AdapterView<*>?,
-                    p1: View?,
-                    p2: Int,
-                    p3: Long
-                ) {
-                    try {
-                        objectDetectorHelper.currentDelegate = p2
-                        updateControlsUi()
-                    } catch(e: UninitializedPropertyAccessException) {
-                        Log.e(TAG, "ObjectDetectorHelper has not been initialized yet.")
-                    }
-                }
-
-                override fun onNothingSelected(p0: AdapterView<*>?) {
-                    /* no op */
-                }
-            }
-
-        // When clicked, change the underlying model used for object detection
-        fragmentCameraBinding.bottomSheetLayout.spinnerModel.setSelection(
-            viewModel.currentModel,
-            false
-        )
-        fragmentCameraBinding.bottomSheetLayout.spinnerModel.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(
-                    p0: AdapterView<*>?,
-                    p1: View?,
-                    p2: Int,
-                    p3: Long
-                ) {
-                    try {
-                        objectDetectorHelper.currentModel = p2
-                        updateControlsUi()
-                    } catch(e: UninitializedPropertyAccessException) {
-                        Log.e(TAG, "ObjectDetectorHelper has not been initialized yet.")
-                    }
-                }
-
-                override fun onNothingSelected(p0: AdapterView<*>?) {
-                    /* no op */
-                }
-            }
+        b.objectCount.text = getString(R.string.objects_count, 0)
+        b.startStop.setOnClickListener { if (session == null) startScan() else stopScan() }
+        updateBanner()
     }
 
-    // Update the values displayed in the bottom sheet. Reset detector.
-    private fun updateControlsUi() {
-        fragmentCameraBinding.bottomSheetLayout.maxResultsValue.text =
-            objectDetectorHelper.maxResults.toString()
-        fragmentCameraBinding.bottomSheetLayout.thresholdValue.text =
-            String.format("%.2f", objectDetectorHelper.threshold)
+    private fun startScan() {
+        val b = fragmentCameraBinding
+        val mode = if (b.modeLive.isChecked) ScanMode.LIVE else ScanMode.FULL
+        session = ScanSession(mode, System.currentTimeMillis())
+        relHeading = 0f
+        headingProvider.start()
 
-        backgroundExecutor.execute {
-            objectDetectorHelper.clearObjectDetector()
-            objectDetectorHelper.setupObjectDetector()
+        b.startStop.text = getString(R.string.stop)
+        b.modeFull.isEnabled = false
+        b.modeLive.isEnabled = false
+        b.coverageRing.reset()
+        b.objectCount.text = getString(R.string.objects_count, 0)
+        val hint = getString(if (mode == ScanMode.FULL) R.string.hint_full else R.string.hint_live)
+        b.announcement.text = hint
+        speech.announce(hint)
+    }
+
+    private fun stopScan() {
+        val s = session ?: return
+        session = null
+        headingProvider.stop()
+        tooFast = false
+        compassLow = false
+
+        val result = s.finish()
+        speech.speakNow(result.summaryText)
+        lifecycleScope.launch { history.save(result) }
+        Log.i(TAG, "Scan finished: ${result.summaryText}")
+
+        _fragmentCameraBinding?.let { b ->
+            b.announcement.text = result.summaryText
+            b.startStop.text = getString(R.string.start)
+            b.modeFull.isEnabled = headingProvider.isAvailable
+            b.modeLive.isEnabled = true
         }
+        updateBanner()
+    }
 
-        fragmentCameraBinding.overlay.clear()
+    private fun updateBanner() {
+        val b = _fragmentCameraBinding ?: return
+        val text = when {
+            !headingProvider.isAvailable -> getString(R.string.banner_no_compass)
+            tooFast -> getString(R.string.banner_slow_down)
+            compassLow -> getString(R.string.banner_calibrate)
+            else -> null
+        }
+        b.banner.text = text
+        b.banner.isVisible = text != null
+    }
+
+    private fun updateScanUi(s: ScanSession) {
+        val b = _fragmentCameraBinding ?: return
+        b.coverageRing.setState(s.coverageSnapshot(), relHeading, s.coveragePercent())
+        b.objectCount.text = getString(R.string.objects_count, s.confirmedCount())
+    }
+
+    override fun onHeading(relHeading: Float, speedDegPerSec: Float) {
+        this.relHeading = relHeading
+        val s = session ?: return
+        s.onHeading(relHeading)
+
+        val now = System.currentTimeMillis()
+        tooFast = speedDegPerSec > MAX_SPEED_DEG_PER_SEC
+        if (tooFast && now - lastSlowDownSpokenAt > SLOW_DOWN_REPEAT_MS) {
+            speech.announce(getString(R.string.banner_slow_down))
+            lastSlowDownSpokenAt = now
+        }
+        updateBanner()
+        updateScanUi(s)
+        if (s.shouldAutoStop(now)) stopScan()
+    }
+
+    override fun onAccuracyLow(low: Boolean) {
+        compassLow = low
+        updateBanner()
     }
 
     // Initialize CameraX, and prepare to bind the camera use cases
     private fun setUpCamera() {
-        val cameraProviderFuture =
-            ProcessCameraProvider.getInstance(requireContext())
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
         cameraProviderFuture.addListener(
             {
-                // CameraProvider
                 cameraProvider = cameraProviderFuture.get()
-
-                // Build and bind the camera use cases
                 bindCameraUseCases()
             },
             ContextCompat.getMainExecutor(requireContext())
         )
     }
 
-    // Declare and bind preview, capture and analysis use cases
+    // Declare and bind preview and analysis use cases
     @SuppressLint("UnsafeOptInUsageError")
     private fun bindCameraUseCases() {
+        val cameraProvider = cameraProvider
+            ?: throw IllegalStateException("Camera initialization failed.")
 
-        // CameraProvider
-        val cameraProvider =
-            cameraProvider
-                ?: throw IllegalStateException("Camera initialization failed.")
+        val cameraSelector = CameraSelector.Builder()
+            .requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
 
-        // CameraSelector - makes assumption that we're only using the back camera
-        val cameraSelector =
-            CameraSelector.Builder()
-                .requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
+        // Only using the 4:3 ratio because this is the closest to our models
+        preview = Preview.Builder()
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .setTargetRotation(fragmentCameraBinding.viewFinder.display.rotation)
+            .build()
 
-        // Preview. Only using the 4:3 ratio because this is the closest to our models
-        preview =
-            Preview.Builder()
-                .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-                .setTargetRotation(fragmentCameraBinding.viewFinder.display.rotation)
-                .build()
+        // Using RGBA 8888 to match how our models work
+        imageAnalyzer = ImageAnalysis.Builder()
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .setTargetRotation(fragmentCameraBinding.viewFinder.display.rotation)
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setOutputImageFormat(OUTPUT_IMAGE_FORMAT_RGBA_8888)
+            .build()
+            .also {
+                it.setAnalyzer(backgroundExecutor, objectDetectorHelper::detectLivestreamFrame)
+            }
 
-        // ImageAnalysis. Using RGBA 8888 to match how our models work
-        imageAnalyzer =
-            ImageAnalysis.Builder()
-                .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-                .setTargetRotation(fragmentCameraBinding.viewFinder.display.rotation)
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                .build()
-                // The analyzer can then be assigned to the instance
-                .also {
-                    it.setAnalyzer(
-                        backgroundExecutor,
-                        objectDetectorHelper::detectLivestreamFrame
-                    )
-                }
-
-        // Must unbind the use-cases before rebinding them
         cameraProvider.unbindAll()
-
         try {
-            // A variable number of use-cases can be passed here -
-            // camera provides access to CameraControl & CameraInfo
-            camera = cameraProvider.bindToLifecycle(
-                this,
-                cameraSelector,
-                preview,
-                imageAnalyzer
-            )
-
-            // Attach the viewfinder's surface provider to preview use case
+            camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalyzer)
             preview?.setSurfaceProvider(fragmentCameraBinding.viewFinder.surfaceProvider)
         } catch (exc: Exception) {
             Log.e(TAG, "Use case binding failed", exc)
@@ -335,43 +266,63 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        imageAnalyzer?.targetRotation =
-            fragmentCameraBinding.viewFinder.display.rotation
+        imageAnalyzer?.targetRotation = fragmentCameraBinding.viewFinder.display.rotation
     }
 
-    // Update UI after objects have been detected. Extracts original image height/width
-    // to scale and place bounding boxes properly through OverlayView
+    // Runs on the MediaPipe result thread.
     override fun onResults(resultBundle: ObjectDetectorHelper.ResultBundle) {
+        val result = resultBundle.results[0]
+        val heading = relHeading
+        val frame = resultBundle.frame
+        val frameIsDark = frame?.let { ColorNamer.isDark(it) } ?: false
+
+        val detections = result.detections().map { d ->
+            val box = d.boundingBox()
+            val center = BoxGeometry.horizontalCenter(
+                box.left, box.top, box.right, box.bottom,
+                resultBundle.inputImageWidth, resultBundle.inputImageHeight, resultBundle.inputImageRotation
+            )
+            FrameDetection(
+                label = d.categories()[0].categoryName(),
+                angle = BoxGeometry.objectAngle(heading, center, hfov),
+                color = frame?.let { ColorNamer.name(it, box, frameIsDark) }
+            )
+        }
+
         activity?.runOnUiThread {
-            if (_fragmentCameraBinding != null) {
-                fragmentCameraBinding.bottomSheetLayout.inferenceTimeVal.text =
-                    String.format("%d ms", resultBundle.inferenceTime)
-
-                // Pass necessary information to OverlayView for drawing on the canvas
-                val detectionResult = resultBundle.results[0]
-                if (isAdded) {
-                    fragmentCameraBinding.overlay.setResults(
-                        detectionResult,
-                        resultBundle.inputImageHeight,
-                        resultBundle.inputImageWidth,
-                        resultBundle.inputImageRotation
-                    )
-                }
-
-                // Force a redraw
-                fragmentCameraBinding.overlay.invalidate()
+            val b = _fragmentCameraBinding ?: return@runOnUiThread
+            if (isAdded) {
+                b.overlay.setResults(
+                    result,
+                    resultBundle.inputImageHeight,
+                    resultBundle.inputImageWidth,
+                    resultBundle.inputImageRotation,
+                    detections.map { it.overlayLabel() }
+                )
             }
+            b.overlay.invalidate()
+
+            val s = session ?: return@runOnUiThread
+            s.onFrame(detections).forEach(speech::announce)
+            updateScanUi(s)
+            if (s.shouldAutoStop(System.currentTimeMillis())) stopScan()
         }
     }
 
     override fun onError(error: String, errorCode: Int) {
         activity?.runOnUiThread {
-            Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show()
-            if (errorCode == ObjectDetectorHelper.GPU_ERROR) {
-                fragmentCameraBinding.bottomSheetLayout.spinnerDelegate.setSelection(
-                    ObjectDetectorHelper.DELEGATE_CPU, false
-                )
-            }
+            val b = _fragmentCameraBinding ?: return@runOnUiThread
+            Log.e(TAG, error)
+            b.announcement.text = error
+            b.startStop.isEnabled = false
         }
+    }
+
+    private fun FrameDetection.overlayLabel() = color?.let { "$label · $it" } ?: label
+
+    private companion object {
+        const val TAG = "ClassroomScanner"
+        const val MAX_SPEED_DEG_PER_SEC = 60f
+        const val SLOW_DOWN_REPEAT_MS = 5_000L
     }
 }
