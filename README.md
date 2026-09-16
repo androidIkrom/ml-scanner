@@ -6,17 +6,20 @@ An on-device Android app that helps blind and low-vision users understand a room
 
 ## Features
 
+- **Home:** choose Full Scan, Live Scan or History.
+- **Scan settings:** back or front camera, CPU or GPU, fast or accurate model, confidence, speech and colors. The last choices are remembered.
 - **Full Scan:** turn 360°. The scan stops automatically and a spoken summary follows.
 - **Live Scan:** objects are announced as they are found.
+- **View text:** everything the app said during the scan, with times and the final summary.
 - **History:** past scans are saved on the phone and can be replayed.
 
 ## How it works
 
 Everything runs on the phone:
 
-- **CameraX + MediaPipe ObjectDetector** (EfficientDet-Lite0, COCO) detect objects in the camera feed.
+- **CameraX + MediaPipe ObjectDetector** (EfficientDet-Lite0 or Lite2, COCO) detect objects in the camera feed.
 - **The rotation vector sensor** gives each object its direction.
-- **The Palette API** finds each object's dominant color.
+- **Pixel color voting with gray-world white balance** names each object's color.
 - **TextToSpeech** reads the results aloud.
 - **Room** stores past scans.
 
