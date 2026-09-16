@@ -15,9 +15,15 @@
  */
 
 task downloadModelFile0(type: Download) {
+    src 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/1/efficientdet_lite0.tflite'
+    dest project.ext.ASSET_DIR + '/efficientdet-lite0.tflite'
+    overwrite false
+}
+
+task downloadModelFile1(type: Download) {
     src 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float32/1/efficientdet_lite2.tflite'
     dest project.ext.ASSET_DIR + '/efficientdet-lite2.tflite'
     overwrite false
 }
 
-preBuild.dependsOn downloadModelFile0
+preBuild.dependsOn downloadModelFile0, downloadModelFile1
