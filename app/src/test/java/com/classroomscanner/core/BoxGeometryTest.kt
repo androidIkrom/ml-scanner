@@ -89,4 +89,16 @@ class BoxGeometryTest {
             BoxGeometry.touchesOneSideEdge(0f, 200f, 10f, 280f, 640, 480, 90),
         )
     }
+
+    @Test
+    fun uprightBoxForEachRotation() {
+        // Unrotated 640x480 buffer, box x 100..200, y 50..150.
+        assertEquals(listOf(100f, 50f, 200f, 150f), BoxGeometry.toUpright(100f, 50f, 200f, 150f, 640, 480, 0).toList())
+        // 90: x' = h - y, y' = x  -> x' 330..430, y' 100..200
+        assertEquals(listOf(330f, 100f, 430f, 200f), BoxGeometry.toUpright(100f, 50f, 200f, 150f, 640, 480, 90).toList())
+        // 180: x' = w - x, y' = h - y
+        assertEquals(listOf(440f, 330f, 540f, 430f), BoxGeometry.toUpright(100f, 50f, 200f, 150f, 640, 480, 180).toList())
+        // 270: x' = y, y' = w - x
+        assertEquals(listOf(50f, 440f, 150f, 540f), BoxGeometry.toUpright(100f, 50f, 200f, 150f, 640, 480, 270).toList())
+    }
 }

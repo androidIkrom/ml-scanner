@@ -1,8 +1,10 @@
 package com.classroomscanner.fragments
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -35,8 +37,11 @@ import com.classroomscanner.core.ScanMode
 import com.classroomscanner.core.ScanSession
 import com.classroomscanner.core.ScanSettings
 import com.classroomscanner.databinding.FragmentCameraBinding
+import com.classroomscanner.face.FaceRecognizer
+import com.classroomscanner.face.upright
 import com.classroomscanner.history.AppDatabase
 import com.classroomscanner.history.HistoryRepository
+import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.scanlog.ScanLogViewModel
 import com.classroomscanner.sensor.CameraFov
 import com.classroomscanner.sensor.HeadingProvider
@@ -44,6 +49,7 @@ import com.classroomscanner.settings.SettingsStore
 import com.classroomscanner.speech.SpeechAnnouncer
 import com.google.android.material.color.MaterialColors
 import com.google.mediapipe.tasks.vision.core.RunningMode
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -90,6 +96,10 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     @Volatile
     private var gpuFallbackStarted = false
 
+    // Created on the detector thread, used on the MediaPipe result thread.
+    @Volatile
+    private var faceRecognizer: FaceRecognizer? = null
+
     override fun onResume() {
         super.onResume()
         if (!PermissionsFragment.hasPermissions(requireContext())) {
@@ -119,6 +129,9 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         speech.shutdownWhenIdle()
         _fragmentCameraBinding = null
         super.onDestroyView()
+        val recognizer = faceRecognizer
+        faceRecognizer = null
+        backgroundExecutor.execute { recognizer?.close() }
         backgroundExecutor.shutdown()
         if (!backgroundExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
             Log.w(TAG, "Detector thread still busy after 2 s")
@@ -165,6 +178,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                 objectDetectorListener = this,
                 runningMode = RunningMode.LIVE_STREAM
             )
+            faceRecognizer = loadRecognizer(context)
             val b = _fragmentCameraBinding
             if (b == null) {
                 // The view is gone already; close the detector we just opened.
@@ -404,8 +418,12 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                 box.left, box.top, box.right, box.bottom,
                 resultBundle.inputImageWidth, resultBundle.inputImageHeight, resultBundle.inputImageRotation
             )
-            Evaluated(detection, kept, counted = kept && !touchesEdge)
-        }
+            val upright = BoxGeometry.toUpright(
+                box.left, box.top, box.right, box.bottom,
+                resultBundle.inputImageWidth, resultBundle.inputImageHeight, resultBundle.inputImageRotation
+            )
+            Evaluated(detection, kept, counted = kept && !touchesEdge, uprightBox = upright)
+        }.let { nameKnownPeople(it, frame, resultBundle.inputImageRotation) }
         val overlayLabels = evaluated.map { if (it.kept) it.detection.overlayLabel() else null }
         val countedDetections = evaluated.filter { it.counted }.map { it.detection }
         logInferenceTime(resultBundle.inferenceTime)
@@ -466,7 +484,52 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     }
 
     /** One detector output: whether it passes the confidence filter and whether it is counted. */
-    private class Evaluated(val detection: FrameDetection, val kept: Boolean, val counted: Boolean)
+    private class Evaluated(
+        val detection: FrameDetection,
+        val kept: Boolean,
+        val counted: Boolean,
+        /** The box in upright-image pixels: left, top, right, bottom. */
+        val uprightBox: FloatArray,
+    )
+
+    private var personFrames = 0
+
+    /**
+     * Replaces "person" with a saved person's name when a recognized face sits inside the box.
+     * Runs on the MediaPipe result thread, on every [FACE_EVERY]th frame that has a kept person.
+     */
+    private fun nameKnownPeople(evaluated: List<Evaluated>, frame: Bitmap?, rotation: Int): List<Evaluated> {
+        val recognizer = faceRecognizer ?: return evaluated
+        if (frame == null || evaluated.none { it.kept && it.detection.label == PERSON }) return evaluated
+        if (++personFrames % FACE_EVERY != 0) return evaluated
+        val faces = try {
+            recognizer.recognize(frame.upright(rotation))
+        } catch (e: Exception) {
+            Log.w(TAG, "Face recognition failed", e)
+            return evaluated
+        }
+        if (faces.isEmpty()) return evaluated
+        return evaluated.map { e ->
+            if (!e.kept || e.detection.label != PERSON) return@map e
+            val (l, t, r, b) = e.uprightBox.toList()
+            val face = faces.firstOrNull { it.centerX in l..r && it.centerY in t..b } ?: return@map e
+            Evaluated(
+                e.detection.copy(label = face.match.name, color = null, isName = true),
+                e.kept,
+                e.counted,
+                e.uprightBox,
+            )
+        }
+    }
+
+    /** Loads saved faces; null when nobody is saved or the models cannot start. Detector thread. */
+    private fun loadRecognizer(context: Context): FaceRecognizer? = try {
+        val known = runBlocking { PeopleRepository(context).knownFaces() }
+        if (known.isEmpty()) null else FaceRecognizer(context, known)
+    } catch (e: Exception) {
+        Log.w(TAG, "Face recognition unavailable", e)
+        null
+    }
 
     private var framesSinceTimingLog = 0
 
@@ -485,5 +548,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         const val MAX_SPEED_DEG_PER_SEC = 60f
         const val SLOW_DOWN_REPEAT_MS = 5_000L
         const val TIMING_LOG_EVERY = 30
+        const val FACE_EVERY = 3
+        const val PERSON = "person"
     }
 }
