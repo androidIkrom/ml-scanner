@@ -77,6 +77,9 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             if (objectDetectorHelper.isClosed()) {
                 objectDetectorHelper.setupObjectDetector()
             }
+            if (!objectDetectorHelper.isClosed()) {
+                activity?.runOnUiThread { _fragmentCameraBinding?.startStop?.isEnabled = true }
+            }
         }
     }
 
@@ -314,7 +317,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             val b = _fragmentCameraBinding ?: return@runOnUiThread
             Log.e(TAG, error)
             b.announcement.text = error
-            b.startStop.isEnabled = false
+            if (session == null) b.startStop.isEnabled = false
         }
     }
 
