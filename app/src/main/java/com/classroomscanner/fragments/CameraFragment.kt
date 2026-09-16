@@ -33,6 +33,7 @@ import com.classroomscanner.core.Compute
 import com.classroomscanner.core.DetectionFilter
 import com.classroomscanner.core.FrameDetection
 import com.classroomscanner.core.ModelChoice
+import com.classroomscanner.core.OutlineTracker
 import com.classroomscanner.core.ScanMode
 import com.classroomscanner.core.ScanSession
 import com.classroomscanner.core.ScanSettings
@@ -41,6 +42,7 @@ import com.classroomscanner.face.FaceRecognizer
 import com.classroomscanner.face.upright
 import com.classroomscanner.history.AppDatabase
 import com.classroomscanner.history.HistoryRepository
+import com.classroomscanner.outline.ObjectOutliner
 import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.scanlog.ScanLogViewModel
 import com.classroomscanner.sensor.CameraFov
@@ -49,10 +51,12 @@ import com.classroomscanner.settings.SettingsStore
 import com.classroomscanner.speech.SpeechAnnouncer
 import com.google.android.material.color.MaterialColors
 import com.google.mediapipe.tasks.vision.core.RunningMode
-import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.runBlocking
 
 class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, HeadingProvider.Listener {
 
@@ -100,6 +104,13 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     @Volatile
     private var faceRecognizer: FaceRecognizer? = null
 
+    // Object shapes: segmentation runs on its own thread, one frame at a time.
+    private lateinit var outlineExecutor: ExecutorService
+    @Volatile
+    private var outliner: ObjectOutliner? = null
+    private val outlineBusy = AtomicBoolean(false)
+    private val outlineTracker = OutlineTracker()
+
     override fun onResume() {
         super.onResume()
         if (!PermissionsFragment.hasPermissions(requireContext())) {
@@ -131,6 +142,10 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         super.onDestroyView()
         val recognizer = faceRecognizer
         faceRecognizer = null
+        val shapes = outliner
+        outliner = null
+        outlineExecutor.execute { shapes?.close() }
+        outlineExecutor.shutdown()
         backgroundExecutor.execute { recognizer?.close() }
         backgroundExecutor.shutdown()
         if (!backgroundExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
@@ -160,6 +175,9 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         Log.i(TAG, "Settings: $settings, horizontal FOV: $hfov")
         gpuFallbackStarted = false
         if (savedInstanceState == null) scanLog.start()
+
+        outlineExecutor = Executors.newSingleThreadExecutor()
+        outlineExecutor.execute { outliner = loadOutliner(context) }
 
         backgroundExecutor = Executors.newSingleThreadExecutor()
         backgroundExecutor.execute {
@@ -221,6 +239,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         SettingsStore(context).save(settings)
         hfov = CameraFov.portraitHorizontalFov(context, facing)
         b.overlay.clear()
+        outlineTracker.replace(emptyList())
         b.overlay.mirrored = facing == CameraFacing.FRONT
         say(getString(if (facing == CameraFacing.FRONT) R.string.camera_now_front else R.string.camera_now_back))
         bindCameraUseCases()
@@ -425,6 +444,15 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             Evaluated(detection, kept, counted = kept && !touchesEdge, uprightBox = upright)
         }.let { nameKnownPeople(it, frame, resultBundle.inputImageRotation) }
         val overlayLabels = evaluated.map { if (it.kept) it.detection.overlayLabel() else null }
+        val rawBoxes = result.detections().map {
+            val box = it.boundingBox()
+            floatArrayOf(box.left, box.top, box.right, box.bottom)
+        }
+        val classLabels = result.detections().map { it.categories()[0].categoryName() }
+        requestOutlines(frame, evaluated, rawBoxes, classLabels)
+        val outlines = evaluated.mapIndexed { i, e ->
+            if (e.kept) outlineTracker.lookup(classLabels[i], rawBoxes[i]) else null
+        }
         val countedDetections = evaluated.filter { it.counted }.map { it.detection }
         logInferenceTime(resultBundle.inferenceTime)
 
@@ -436,7 +464,8 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                     resultBundle.inputImageHeight,
                     resultBundle.inputImageWidth,
                     resultBundle.inputImageRotation,
-                    overlayLabels
+                    overlayLabels,
+                    outlines
                 )
             }
             b.overlay.invalidate()
@@ -494,6 +523,48 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
 
     private var personFrames = 0
 
+    /** Starts shape finding for the largest kept boxes unless a run is still going. Result thread. */
+    private fun requestOutlines(
+        frame: Bitmap?,
+        evaluated: List<Evaluated>,
+        boxes: List<FloatArray>,
+        labels: List<String>,
+    ) {
+        val shapes = outliner ?: return
+        if (frame == null) return
+        val picked = evaluated.indices
+            .filter { evaluated[it].kept }
+            .sortedByDescending { (boxes[it][2] - boxes[it][0]) * (boxes[it][3] - boxes[it][1]) }
+            .take(MAX_OUTLINES)
+        if (picked.isEmpty() || !outlineBusy.compareAndSet(false, true)) return
+        try {
+            outlineExecutor.execute {
+                try {
+                    val segments = shapes.outline(frame, picked.map { boxes[it] })
+                    outlineTracker.replace(
+                        picked.indices.mapNotNull { k ->
+                            segments[k]?.let { OutlineTracker.Entry(labels[picked[k]], boxes[picked[k]], it) }
+                        }
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Outline failed", e)
+                } finally {
+                    outlineBusy.set(false)
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            outlineBusy.set(false)
+        }
+    }
+
+    /** Null when the segmentation model cannot start; boxes are drawn instead. */
+    private fun loadOutliner(context: Context): ObjectOutliner? = try {
+        ObjectOutliner(context)
+    } catch (e: Exception) {
+        Log.w(TAG, "Object outlines unavailable", e)
+        null
+    }
+
     /**
      * Replaces "person" with a saved person's name when a recognized face sits inside the box.
      * Runs on the MediaPipe result thread, on every [FACE_EVERY]th frame that has a kept person.
@@ -549,6 +620,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         const val SLOW_DOWN_REPEAT_MS = 5_000L
         const val TIMING_LOG_EVERY = 30
         const val FACE_EVERY = 3
+        const val MAX_OUTLINES = 5
         const val PERSON = "person"
     }
 }
