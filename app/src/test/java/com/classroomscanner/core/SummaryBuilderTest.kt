@@ -79,4 +79,68 @@ class SummaryBuilderTest {
         assertEquals("Blue chair on your left.", SummaryBuilder.livePhrase(obj("chair", 1, "blue", 270f)))
         assertEquals("Laptop in front.", SummaryBuilder.livePhrase(obj("laptop", 1, null, 0f)))
     }
+
+    @Test
+    fun sameLabelWithDifferentColorsIsOneGroupWithColorList() {
+        val text = SummaryBuilder.fullSummary(
+            listOf(
+                obj("chair", 2, "blue", 80f),
+                obj("chair", 1, "red", 100f),
+                obj("chair", 1, "gray", 120f),
+            ),
+            100,
+        )
+        assertEquals("Around you: 4 chairs in blue, red and gray on your right.", text)
+    }
+
+    @Test
+    fun twoColorsAreJoinedWithAnd() {
+        val text = SummaryBuilder.fullSummary(
+            listOf(obj("chair", 1, "red", 0f), obj("chair", 1, "blue", 10f)),
+            100,
+        )
+        assertEquals("Around you: 2 chairs in red and blue in front.", text)
+    }
+
+    @Test
+    fun unknownColorsAreLeftOutOfTheList() {
+        val text = SummaryBuilder.fullSummary(
+            listOf(obj("bottle", 2, "green", 0f), obj("bottle", 1, null, 5f)),
+            100,
+        )
+        assertEquals("Around you: 3 bottles in green in front.", text)
+    }
+
+    @Test
+    fun groupWithNoKnownColorHasNoColor() {
+        val text = SummaryBuilder.fullSummary(
+            listOf(obj("book", 1, null, 0f), obj("book", 2, null, 20f)),
+            100,
+        )
+        assertEquals("Around you: 3 books in front.", text)
+    }
+
+    @Test
+    fun mixedGroupsInOneSector() {
+        val text = SummaryBuilder.fullSummary(
+            listOf(
+                obj("chair", 2, "blue", 0f),
+                obj("chair", 1, "red", 5f),
+                obj("laptop", 1, "black", 10f),
+            ),
+            100,
+        )
+        assertEquals("Around you: 3 chairs in blue and red, a black laptop in front.", text)
+    }
+
+    @Test
+    fun peopleAreNeverGivenAColor() {
+        val text = SummaryBuilder.fullSummary(
+            listOf(obj("person", 1, "blue", 180f), obj("person", 1, "red", 190f)),
+            100,
+        )
+        assertEquals("Around you: 2 people behind you.", text)
+        assertEquals("Person on your left.", SummaryBuilder.livePhrase(obj("person", 1, "blue", 270f)))
+        assertEquals("a person", SummaryBuilder.describe(obj("person", 1, "blue", 0f)))
+    }
 }

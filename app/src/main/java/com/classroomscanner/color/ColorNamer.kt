@@ -3,18 +3,21 @@ package com.classroomscanner.color
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.RectF
-import androidx.palette.graphics.Palette
-import com.classroomscanner.core.ColorMapper
+import com.classroomscanner.core.ColorVote
+import com.classroomscanner.core.WhiteBalance
 
 object ColorNamer {
     private const val MIN_CROP_PX = 8
-    private const val PALETTE_AREA = 48 * 48
+    private const val SAMPLE_PX = 24
     private const val DARK_LUMA = 0.15f
     private const val GRID = 16
 
-    /** Dominant color name of the central half of [box]; [box] is in [frame] pixel coordinates. */
-    fun name(frame: Bitmap, box: RectF, frameIsDark: Boolean): String? {
-        if (frameIsDark) return null
+    /** Brightness and white-balance correction measured once per frame. */
+    class FrameStats(val isDark: Boolean, val gains: WhiteBalance.Gains)
+
+    /** Color name of the central half of [box] ([frame] pixel coordinates), or null when unknown. */
+    fun name(frame: Bitmap, box: RectF, stats: FrameStats): String? {
+        if (stats.isDark) return null
         val w = box.width()
         val h = box.height()
         val x = (box.left + w / 4f).toInt().coerceIn(0, frame.width - 1)
@@ -24,24 +27,32 @@ object ColorNamer {
         if (cropW < MIN_CROP_PX || cropH < MIN_CROP_PX) return null
 
         val crop = Bitmap.createBitmap(frame, x, y, cropW, cropH)
-        val swatch = Palette.from(crop)
-            .resizeBitmapArea(PALETTE_AREA)
-            .maximumColorCount(8)
-            .generate()
-            .dominantSwatch ?: return null
-        val hsv = FloatArray(3)
-        Color.colorToHSV(swatch.rgb, hsv)
-        return ColorMapper.nameFromHsv(hsv[0], hsv[1], hsv[2])
+        val sample = Bitmap.createScaledBitmap(crop, SAMPLE_PX, SAMPLE_PX, true)
+        val pixels = IntArray(SAMPLE_PX * SAMPLE_PX)
+        sample.getPixels(pixels, 0, SAMPLE_PX, 0, 0, SAMPLE_PX, SAMPLE_PX)
+        if (sample !== crop) sample.recycle()
+        if (crop !== frame) crop.recycle()
+        return ColorVote.nameOfPixels(pixels, stats.gains)
     }
 
-    fun isDark(frame: Bitmap): Boolean {
-        var sum = 0f
+    /** Samples a grid over [frame] for its mean brightness and gray-world white balance. */
+    fun frameStats(frame: Bitmap): FrameStats {
+        var r = 0f
+        var g = 0f
+        var b = 0f
         for (gy in 0 until GRID) {
             for (gx in 0 until GRID) {
                 val p = frame.getPixel(gx * (frame.width - 1) / (GRID - 1), gy * (frame.height - 1) / (GRID - 1))
-                sum += (0.299f * Color.red(p) + 0.587f * Color.green(p) + 0.114f * Color.blue(p)) / 255f
+                r += Color.red(p)
+                g += Color.green(p)
+                b += Color.blue(p)
             }
         }
-        return sum / (GRID * GRID) < DARK_LUMA
+        val n = (GRID * GRID).toFloat()
+        r /= n
+        g /= n
+        b /= n
+        val luma = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+        return FrameStats(luma < DARK_LUMA, WhiteBalance.gains(r, g, b))
     }
 }

@@ -27,7 +27,7 @@ object SummaryBuilder {
     }
 
     fun describe(o: ObjectSummary): String {
-        val colorPart = o.color?.let { "$it " } ?: ""
+        val colorPart = colorOf(o)?.let { "$it " } ?: ""
         return if (o.count == 1) {
             val phrase = colorPart + o.label
             val article = if (phrase.first().lowercaseChar() in "aeiou") "an" else "a"
@@ -44,17 +44,39 @@ object SummaryBuilder {
         val parts = Sector4.entries.mapNotNull { sector ->
             val inSector = objects.filter { AngleMath.sector4(it.angle) == sector }
             if (inSector.isEmpty()) return@mapNotNull null
-            val merged = inSector
-                .groupBy { it.label to it.color }
-                .map { (key, group) -> ObjectSummary(key.first, group.sumOf { it.count }, key.second, group.first().angle) }
-                .sortedByDescending { it.count }
-            merged.joinToString(", ") { describe(it) } + " " + sector.phrase
+            val groups = inSector
+                .groupBy { it.label }
+                .map { (_, group) -> group }
+                .sortedByDescending { group -> group.sumOf { it.count } }
+            groups.joinToString(", ") { describeGroup(it) } + " " + sector.phrase
         }
         return prefix + "Around you: " + parts.joinToString("; ") + "."
     }
 
+    /**
+     * Same-label objects in one direction are spoken as one group: "3 blue chairs" when they share a color,
+     * otherwise "4 chairs in blue, red and gray" listing the known colors, most common first.
+     */
+    private fun describeGroup(group: List<ObjectSummary>): String {
+        val first = group.first()
+        val count = group.sumOf { it.count }
+        val colorCounts = LinkedHashMap<String, Int>()
+        for (o in group) colorOf(o)?.let { colorCounts[it] = (colorCounts[it] ?: 0) + o.count }
+        val allSameKnownColor = colorCounts.size == 1 && group.all { colorOf(it) != null }
+        if (colorCounts.isEmpty() || allSameKnownColor) {
+            return describe(ObjectSummary(first.label, count, colorCounts.keys.firstOrNull(), first.angle))
+        }
+        val colors = colorCounts.entries.sortedByDescending { it.value }.map { it.key }
+        return describe(ObjectSummary(first.label, count, null, first.angle)) + " in " + joinWithAnd(colors)
+    }
+
+    private fun joinWithAnd(items: List<String>): String =
+        if (items.size == 1) items[0] else items.dropLast(1).joinToString(", ") + " and " + items.last()
+
+    private fun colorOf(o: ObjectSummary): String? = o.color?.takeIf { ColorPolicy.hasColor(o.label) }
+
     fun livePhrase(o: ObjectSummary): String {
-        val phrase = (o.color?.let { "$it " } ?: "") + o.label
+        val phrase = (colorOf(o)?.let { "$it " } ?: "") + o.label
         return phrase.replaceFirstChar { it.uppercaseChar() } + " " + AngleMath.sector4(o.angle).phrase + "."
     }
 }

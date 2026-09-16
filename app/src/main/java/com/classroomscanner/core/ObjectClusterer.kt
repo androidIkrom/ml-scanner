@@ -19,10 +19,20 @@ class Cluster internal constructor(val id: Int, val label: String, angle: Float)
     /** Counting by the most seen in one frame keeps 3 chairs at 3 no matter how many frames saw them. */
     val count: Int get() = maxInSingleFrame
 
-    val color: String? get() = colorVotes.maxByOrNull { it.value }?.key
+    /** Majority color; null unless it has at least [MIN_COLOR_VOTES] votes and at least half of all votes. */
+    val color: String?
+        get() {
+            val top = colorVotes.maxByOrNull { it.value } ?: return null
+            val total = colorVotes.values.sum()
+            return if (top.value >= MIN_COLOR_VOTES && top.value * 2 >= total) top.key else null
+        }
 
     internal fun vote(color: String?) {
         if (color != null) colorVotes[color] = (colorVotes[color] ?: 0) + 1
+    }
+
+    private companion object {
+        const val MIN_COLOR_VOTES = 2
     }
 }
 

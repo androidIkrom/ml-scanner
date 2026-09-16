@@ -85,4 +85,20 @@ class ObjectClustererTest {
         c.addFrame(listOf(det("chair", 5f)))
         assertEquals(0f, c.clusters()[0].meanAngle, 0.01f)
     }
+
+    @Test
+    fun singleColorVoteIsNotTrusted() {
+        val c = ObjectClusterer()
+        c.addFrame(listOf(det("chair", 0f, "blue")))
+        c.addFrame(listOf(det("chair", 0f, null)))
+        c.addFrame(listOf(det("chair", 0f, null)))
+        assertNull(c.confirmed()[0].color)
+    }
+
+    @Test
+    fun colorWithoutClearMajorityIsNotTrusted() {
+        val c = ObjectClusterer()
+        listOf("blue", "red", "blue", "red", "gray").forEach { c.addFrame(listOf(det("chair", 0f, it))) }
+        assertNull(c.confirmed()[0].color)
+    }
 }
