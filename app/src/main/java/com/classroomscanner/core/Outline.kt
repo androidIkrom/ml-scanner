@@ -65,6 +65,86 @@ object MaskOutline {
         }
         return out.toFloatArray()
     }
+
+    /**
+     * Joins marching-squares segments into closed loops and returns the loop with the largest
+     * bounding box as `x0, y0, x1, y1, ...` (small loops are mask noise).
+     */
+    fun largestLoop(segments: FloatArray): FloatArray {
+        val count = segments.size / 4
+        if (count == 0) return FloatArray(0)
+        fun key(x: Float, y: Float) = (Math.round(x * 1000).toLong() shl 32) xor (Math.round(y * 1000).toLong() and 0xffffffffL)
+        val byPoint = HashMap<Long, MutableList<Int>>()
+        for (k in 0 until count) {
+            byPoint.getOrPut(key(segments[4 * k], segments[4 * k + 1])) { mutableListOf() } += k
+            byPoint.getOrPut(key(segments[4 * k + 2], segments[4 * k + 3])) { mutableListOf() } += k
+        }
+        val used = BooleanArray(count)
+        var best = FloatArray(0)
+        var bestArea = -1f
+        for (start in 0 until count) {
+            if (used[start]) continue
+            val points = ArrayList<Float>()
+            var seg = start
+            var x = segments[4 * seg]
+            var y = segments[4 * seg + 1]
+            while (true) {
+                used[seg] = true
+                points += x
+                points += y
+                // Walk to the other end of this segment, then to an unused segment touching it.
+                val sx = segments[4 * seg]
+                val sy = segments[4 * seg + 1]
+                val atStart = key(sx, sy) == key(x, y)
+                x = if (atStart) segments[4 * seg + 2] else sx
+                y = if (atStart) segments[4 * seg + 3] else sy
+                seg = byPoint[key(x, y)]?.firstOrNull { !used[it] } ?: break
+            }
+            val area = bboxArea(points)
+            if (area > bestArea) {
+                bestArea = area
+                best = points.toFloatArray()
+            }
+        }
+        return best
+    }
+
+    /** Chaikin corner cutting on a closed polyline; each iteration doubles the point count. */
+    fun smooth(loop: FloatArray, iterations: Int = 2): FloatArray {
+        var pts = loop
+        repeat(iterations) {
+            val n = pts.size / 2
+            if (n < 3) return pts
+            val out = FloatArray(n * 4)
+            for (i in 0 until n) {
+                val j = (i + 1) % n
+                val x0 = pts[2 * i]
+                val y0 = pts[2 * i + 1]
+                val x1 = pts[2 * j]
+                val y1 = pts[2 * j + 1]
+                out[4 * i] = 0.75f * x0 + 0.25f * x1
+                out[4 * i + 1] = 0.75f * y0 + 0.25f * y1
+                out[4 * i + 2] = 0.25f * x0 + 0.75f * x1
+                out[4 * i + 3] = 0.25f * y0 + 0.75f * y1
+            }
+            pts = out
+        }
+        return pts
+    }
+
+    private fun bboxArea(points: List<Float>): Float {
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (i in points.indices step 2) {
+            minX = min(minX, points[i])
+            maxX = max(maxX, points[i])
+            minY = min(minY, points[i + 1])
+            maxY = max(maxY, points[i + 1])
+        }
+        return (maxX - minX) * (maxY - minY)
+    }
 }
 
 /**
@@ -73,7 +153,8 @@ object MaskOutline {
  */
 class OutlineTracker {
 
-    class Entry(val label: String, val box: FloatArray, val segments: FloatArray)
+    /** [points] is a closed outline `x0, y0, x1, y1, ...` in the same pixels as [box]. */
+    class Entry(val label: String, val box: FloatArray, val points: FloatArray)
 
     @Volatile
     private var entries: List<Entry> = emptyList()
@@ -82,7 +163,10 @@ class OutlineTracker {
         entries = newEntries
     }
 
-    /** Outline for a box of [label], shifted by how far the box moved; null when nothing overlaps enough. */
+    /**
+     * Outline for a box of [label], moved and scaled with the box since it was computed;
+     * null when no stored box overlaps enough.
+     */
     fun lookup(label: String, box: FloatArray): FloatArray? {
         val best = entries
             .filter { it.label == label }
@@ -90,13 +174,20 @@ class OutlineTracker {
             .filter { it.second >= MIN_IOU }
             .maxByOrNull { it.second }
             ?.first ?: return null
-        val dx = centerX(box) - centerX(best.box)
-        val dy = centerY(box) - centerY(best.box)
-        return FloatArray(best.segments.size) { i -> best.segments[i] + if (i % 2 == 0) dx else dy }
+        val oldCx = centerX(best.box)
+        val oldCy = centerY(best.box)
+        val sx = (box[2] - box[0]) / (best.box[2] - best.box[0]).coerceAtLeast(1f)
+        val sy = (box[3] - box[1]) / (best.box[3] - best.box[1]).coerceAtLeast(1f)
+        val newCx = centerX(box)
+        val newCy = centerY(box)
+        return FloatArray(best.points.size) { i ->
+            val v = best.points[i]
+            if (i % 2 == 0) newCx + (v - oldCx) * sx else newCy + (v - oldCy) * sy
+        }
     }
 
     companion object {
-        const val MIN_IOU = 0.3f
+        const val MIN_IOU = 0.5f
 
         fun iou(a: FloatArray, b: FloatArray): Float {
             val w = min(a[2], b[2]) - max(a[0], b[0])
