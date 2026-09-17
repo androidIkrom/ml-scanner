@@ -59,6 +59,14 @@ class SearchResolverTest {
     }
 
     @Test
+    fun savedNameThatIsAFillerWord() {
+        val withMe = saved + SavedName(SavedKind.PERSON, 5, "Me", null)
+        assertEquals(SearchTarget.Person(5, "Me"), SearchResolver.resolve("find me", withMe))
+        assertEquals(SearchTarget.Person(5, "Me"), SearchResolver.resolve("Me", withMe))
+        assertEquals(SearchTarget.Unknown(""), SearchResolver.resolve("find me", saved))
+    }
+
+    @Test
     fun cocoHasEightyLabels() {
         assertEquals(80, CocoLabels.ALL.size)
     }

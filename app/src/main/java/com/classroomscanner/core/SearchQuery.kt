@@ -59,26 +59,35 @@ object SearchResolver {
 
     /** Lowercase words without punctuation or command words. */
     fun clean(text: String): String =
-        text.lowercase()
-            .replace("'", "")
-            .replace(Regex("[^a-z0-9]+"), " ")
-            .split(' ')
-            .filter { it.isNotEmpty() && it !in fillers }
-            .joinToString(" ")
+        words(text).split(' ').filter { it.isNotEmpty() && it !in fillers }.joinToString(" ")
+
+    /** Lowercase words without punctuation; command words are kept. */
+    private fun words(text: String): String =
+        text.lowercase().replace("'", "").replace(Regex("[^a-z0-9]+"), " ").trim()
 
     fun resolve(text: String, saved: List<SavedName>): SearchTarget {
         val query = clean(text)
+        findSaved(query, words(text), saved)?.let { return it.toTarget() }
         if (query.isEmpty()) return SearchTarget.Unknown("")
-        findSaved(query, saved)?.let { return it.toTarget() }
         findLabel(query)?.let { return SearchTarget.Label(it) }
         return SearchTarget.Unknown(query)
     }
 
-    private fun findSaved(query: String, saved: List<SavedName>): SavedName? {
+    /**
+     * [query] is the cleaned text, [raw] the text with command words kept, so a saved name that is
+     * itself a command word (like "Me") is still found.
+     */
+    private fun findSaved(query: String, raw: String, saved: List<SavedName>): SavedName? {
         val named = saved.map { it to clean(it.name) }.filter { it.second.isNotEmpty() }
-        named.firstOrNull { it.second == query }?.let { return it.first }
-        named.filter { " $query ".contains(" ${it.second} ") }
+        if (query.isNotEmpty()) {
+            named.firstOrNull { it.second == query }?.let { return it.first }
+            named.filter { " $query ".contains(" ${it.second} ") }
+                .maxByOrNull { it.second.length }?.let { return it.first }
+        }
+        saved.map { it to words(it.name) }
+            .filter { it.second.isNotEmpty() && " $raw ".contains(" ${it.second} ") }
             .maxByOrNull { it.second.length }?.let { return it.first }
+        if (query.isEmpty()) return null
         return named
             .filter { it.second.length >= MIN_FUZZY_LENGTH }
             .map { it to levenshtein(it.second, query) }
