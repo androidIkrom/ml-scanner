@@ -1725,7 +1725,7 @@ class ScanHubFragment : Fragment() {
 }
 ```
 
-`HeadingProvider.isAvailable(context)` is used here because the no-op listener object is shared by Home and the hub. Add this to `HeadingProvider`'s companion object (create the companion if it has none):
+`HeadingProvider.isAvailable(context)` is used here because the no-op listener object is shared by Home and the hub. `HeadingProvider` has `private companion object` with two constants. Change it to `companion object`, mark the two constants `private const val`, and add this function to it:
 
 ```kotlin
         /** True when the phone has the rotation sensor Full Scan needs. */

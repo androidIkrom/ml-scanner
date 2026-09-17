@@ -69,7 +69,7 @@ The app gets a new top level with three entries: **Full scan**, **Search scan** 
   1. Search query.
   2. The name field on Add person and Add item, via a mic end-icon on the `TextInputLayout`.
   3. Home voice commands.
-- **No recognizer:** if `SpeechRecognizer.isRecognitionAvailable` is false, the mic buttons are hidden and the app says so once.
+- **No recognizer:** if `SpeechRecognizer.isRecognitionAvailable` is false, the mic end-icons are hidden, the Search mic button is disabled, and tapping the Home mic says voice input is not available.
 
 ## Pure core logic (TDD)
 
@@ -129,7 +129,7 @@ The app gets a new top level with three entries: **Full scan**, **Search scan** 
 ## Error handling
 
 - Missing models or a failed recognizer: the app speaks and shows "Search is not available", and the screen stays open.
-- Unknown query: "I can't search for X. Try again." The mic reopens after TTS finishes (by a delay of about 2 s).
+- Unknown query: "I can't search for X. Try again." The user taps the mic again.
 - An item enrollment frame with no candidate gives the warning "Point the camera at the object", spoken at most every 3 s.
 
 ## Testing
