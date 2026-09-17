@@ -133,4 +133,7 @@
     <string name="searching_for">Searching for %s</string>
     <string name="search_start_hint">Turn slowly. I will beep when I see it.</string>
     <string name="search_unavailable">Search is not available.</string>
+    <string name="say_name">Say the name</string>
+    <string name="say_name_prompt">Say the name.</string>
+    <string name="name_heard">Name: %s. Tap Start when ready, or say it again.</string>
 </resources>

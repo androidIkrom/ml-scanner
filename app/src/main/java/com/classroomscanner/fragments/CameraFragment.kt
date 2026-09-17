@@ -35,6 +35,7 @@ import com.classroomscanner.core.FrameDetection
 import com.classroomscanner.core.ModelChoice
 import com.classroomscanner.core.OutlineTracker
 import com.classroomscanner.core.ScanMode
+import com.classroomscanner.core.StickyNames
 import com.classroomscanner.core.ScanSession
 import com.classroomscanner.core.ScanSettings
 import com.classroomscanner.databinding.FragmentCameraBinding
@@ -108,7 +109,11 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     private var faceRecognizer: FaceRecognizer? = null
     @Volatile
     private var itemRecognizer: ItemRecognizer? = null
-    private var itemFrames = 0
+
+    // Name decisions for tracked objects; MediaPipe result thread only.
+    private val stickyNames = StickyNames()
+    private var nameFrames = 0
+    @Volatile private var resetNames = false
 
     // Object shapes: segmentation runs on its own thread, one frame at a time.
     private lateinit var outlineExecutor: ExecutorService
@@ -252,6 +257,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         hfov = CameraFov.portraitHorizontalFov(context, facing)
         b.overlay.clear()
         outlineTracker.replace(emptyList())
+        resetNames = true
         b.overlay.mirrored = facing == CameraFacing.FRONT
         say(getString(if (facing == CameraFacing.FRONT) R.string.camera_now_front else R.string.camera_now_back))
         bindCameraUseCases()
@@ -454,8 +460,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                 resultBundle.inputImageWidth, resultBundle.inputImageHeight, resultBundle.inputImageRotation
             )
             Evaluated(detection, kept, counted = kept && !touchesEdge, uprightBox = upright)
-        }.let { nameKnownPeople(it, frame, resultBundle.inputImageRotation) }
-            .let { nameSavedItems(it, frame, result.detections(), resultBundle.inputImageRotation) }
+        }.let { nameSavedThings(it, frame, result.detections(), resultBundle.inputImageRotation) }
         val overlayLabels = evaluated.map { if (it.kept) it.detection.overlayLabel() else null }
         val rawBoxes = result.detections().map {
             val box = it.boundingBox()
@@ -534,7 +539,6 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         val uprightBox: FloatArray,
     )
 
-    private var personFrames = 0
 
     /** Starts shape finding for the largest kept boxes unless a run is still going. Result thread. */
     private fun requestOutlines(
@@ -580,30 +584,86 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     }
 
     /**
-     * Replaces "person" with a saved person's name when a recognized face sits inside the box.
-     * Runs on the MediaPipe result thread, on every [FACE_EVERY]th frame that has a kept person.
+     * Gives kept detections the names of saved people and items. Objects are followed across frames
+     * and a name, once decided, stays with its object, so labels do not flip.
+     * Runs on the MediaPipe result thread; recognition runs on every [NAME_EVERY]th frame and only
+     * for objects without a decided name.
      */
-    private fun nameKnownPeople(evaluated: List<Evaluated>, frame: Bitmap?, rotation: Int): List<Evaluated> {
-        val recognizer = faceRecognizer ?: return evaluated
-        if (frame == null || evaluated.none { it.kept && it.detection.label == PERSON }) return evaluated
-        if (++personFrames % FACE_EVERY != 0) return evaluated
+    private fun nameSavedThings(
+        evaluated: List<Evaluated>,
+        frame: Bitmap?,
+        detections: List<com.google.mediapipe.tasks.components.containers.Detection>,
+        rotation: Int,
+    ): List<Evaluated> {
+        val faces = faceRecognizer
+        val items = itemRecognizer
+        if (faces == null && items == null) return evaluated
+        if (resetNames) {
+            resetNames = false
+            stickyNames.clear()
+        }
+        val kept = evaluated.indices.filter { evaluated[it].kept }
+        val ids = stickyNames.track(
+            kept.map { if (evaluated[it].detection.label == PERSON) PERSON else THING },
+            kept.map { evaluated[it].uprightBox },
+        )
+        val trackOf = kept.zip(ids).toMap()
+        if (frame != null && ++nameFrames % NAME_EVERY == 0) {
+            val undecided = kept.filter { !stickyNames.isDecided(trackOf.getValue(it)) }
+            val people = undecided.filter { evaluated[it].detection.label == PERSON }
+            if (faces != null && people.isNotEmpty()) votePeople(people, trackOf, evaluated, faces, frame, rotation)
+            val things = undecided.filter { evaluated[it].detection.label != PERSON }
+            if (items != null && things.isNotEmpty()) voteItems(things, trackOf, detections, items, frame, rotation)
+        }
+        return evaluated.mapIndexed { i, e ->
+            val name = trackOf[i]?.let { stickyNames.nameOf(it) } ?: return@mapIndexed e
+            Evaluated(e.detection.copy(label = name, color = null, isName = true), e.kept, e.counted, e.uprightBox)
+        }
+    }
+
+    private fun votePeople(
+        people: List<Int>,
+        trackOf: Map<Int, Int>,
+        evaluated: List<Evaluated>,
+        recognizer: FaceRecognizer,
+        frame: Bitmap,
+        rotation: Int,
+    ) {
         val faces = try {
             recognizer.recognize(frame.upright(rotation))
         } catch (e: Exception) {
             Log.w(TAG, "Face recognition failed", e)
-            return evaluated
+            return
         }
-        if (faces.isEmpty()) return evaluated
-        return evaluated.map { e ->
-            if (!e.kept || e.detection.label != PERSON) return@map e
-            val (l, t, r, b) = e.uprightBox.toList()
-            val face = faces.firstOrNull { it.centerX in l..r && it.centerY in t..b } ?: return@map e
-            Evaluated(
-                e.detection.copy(label = face.match.name, color = null, isName = true),
-                e.kept,
-                e.counted,
-                e.uprightBox,
-            )
+        for (i in people) {
+            val (l, t, r, b) = evaluated[i].uprightBox.toList()
+            val face = faces.firstOrNull { it.centerX in l..r && it.centerY in t..b }
+            stickyNames.vote(trackOf.getValue(i), face?.match?.name)
+        }
+    }
+
+    /** Items are compared by look with every saved item, since the detector may mix up similar classes. */
+    private fun voteItems(
+        things: List<Int>,
+        trackOf: Map<Int, Int>,
+        detections: List<com.google.mediapipe.tasks.components.containers.Detection>,
+        recognizer: ItemRecognizer,
+        frame: Bitmap,
+        rotation: Int,
+    ) {
+        things.sortedByDescending {
+            val box = detections[it].boundingBox()
+            box.width() * box.height()
+        }.take(MAX_ITEM_CROPS).forEach { i ->
+            val box = detections[i].boundingBox()
+            val crop = frame.cropBox(box.left, box.top, box.right, box.bottom)?.upright(rotation) ?: return@forEach
+            val match = try {
+                recognizer.match(crop, null)
+            } catch (e: Exception) {
+                Log.w(TAG, "Item recognition failed", e)
+                null
+            }
+            stickyNames.vote(trackOf.getValue(i), match?.name)
         }
     }
 
@@ -616,43 +676,6 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         null
     }
 
-
-    /**
-     * Replaces a detection's label with a saved item's name when its crop matches.
-     * Runs on the MediaPipe result thread, on every [ITEM_EVERY]th frame that has a candidate.
-     */
-    private fun nameSavedItems(
-        evaluated: List<Evaluated>,
-        frame: Bitmap?,
-        detections: List<com.google.mediapipe.tasks.components.containers.Detection>,
-        rotation: Int,
-    ): List<Evaluated> {
-        val recognizer = itemRecognizer ?: return evaluated
-        if (frame == null) return evaluated
-        val candidates = evaluated.indices
-            .filter { evaluated[it].kept && !evaluated[it].detection.isName && evaluated[it].detection.label in recognizer.labels }
-        if (candidates.isEmpty() || ++itemFrames % ITEM_EVERY != 0) return evaluated
-        val names = HashMap<Int, String>()
-        candidates.sortedByDescending {
-            val box = detections[it].boundingBox()
-            box.width() * box.height()
-        }.take(MAX_ITEM_CROPS).forEach { i ->
-            val box = detections[i].boundingBox()
-            val crop = frame.cropBox(box.left, box.top, box.right, box.bottom)?.upright(rotation) ?: return@forEach
-            val match = try {
-                recognizer.match(crop, evaluated[i].detection.label)
-            } catch (e: Exception) {
-                Log.w(TAG, "Item recognition failed", e)
-                null
-            }
-            if (match != null) names[i] = match.name
-        }
-        if (names.isEmpty()) return evaluated
-        return evaluated.mapIndexed { i, e ->
-            val name = names[i] ?: return@mapIndexed e
-            Evaluated(e.detection.copy(label = name, color = null, isName = true), e.kept, e.counted, e.uprightBox)
-        }
-    }
 
     /** Loads saved items; null when none are saved or the model cannot start. Detector thread. */
     private fun loadItemRecognizer(context: Context): ItemRecognizer? = try {
@@ -680,8 +703,8 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         const val MAX_SPEED_DEG_PER_SEC = 60f
         const val SLOW_DOWN_REPEAT_MS = 5_000L
         const val TIMING_LOG_EVERY = 30
-        const val FACE_EVERY = 3
-        const val ITEM_EVERY = 3
+        const val NAME_EVERY = 3
+        const val THING = "thing"
         const val MAX_ITEM_CROPS = 3
         const val MAX_OUTLINES = 5
         const val PERSON = "person"

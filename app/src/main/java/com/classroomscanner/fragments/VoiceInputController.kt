@@ -9,6 +9,9 @@ import com.classroomscanner.MainActivity
 import com.classroomscanner.R
 import com.classroomscanner.speech.SpeechInput
 
+/** Pause before a screen starts listening on its own, so its own announcement can begin. */
+internal const val AUTO_LISTEN_DELAY_MS = 1_200L
+
 /**
  * Microphone button logic for one fragment: asks for the permission, silences speech, listens once.
  * Create it as a fragment field (it registers a permission launcher) and call [release] in onDestroyView.

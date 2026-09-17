@@ -12,10 +12,7 @@
         style="?attr/textInputOutlinedStyle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="@string/person_name"
-        app:endIconContentDescription="@string/voice_input"
-        app:endIconDrawable="@drawable/ic_mic_24"
-        app:endIconMode="custom">
+        android:hint="@string/person_name">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/name_input"
@@ -26,6 +23,18 @@
             android:maxLength="40"
             android:minHeight="56dp" />
     </com.google.android.material.textfield.TextInputLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/say_name_button"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:minHeight="72dp"
+        android:text="@string/say_name"
+        android:textSize="20sp"
+        app:icon="@drawable/ic_mic_24"
+        app:iconSize="32dp" />
 
     <TextView
         android:layout_width="wrap_content"

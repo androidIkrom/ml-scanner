@@ -2,6 +2,7 @@ package com.classroomscanner.speech
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -9,7 +10,7 @@ import android.speech.SpeechRecognizer
 
 /** One-shot English speech-to-text with Android's recognizer. Main thread only. */
 class SpeechInput(context: Context) {
-    private val recognizer = SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
+    private val recognizer = create(context.applicationContext)
     private var destroyed = false
 
     fun listen(onListening: (Boolean) -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit) {
@@ -65,6 +66,19 @@ class SpeechInput(context: Context) {
     companion object {
         private const val NOT_CAUGHT = "I didn't catch that. Try again."
 
-        fun isAvailable(context: Context): Boolean = SpeechRecognizer.isRecognitionAvailable(context)
+        fun isAvailable(context: Context): Boolean =
+            SpeechRecognizer.isRecognitionAvailable(context) || hasOnDevice(context)
+
+        /** Some phones have no recognition service app but do have Android's on-device recognizer. */
+        private fun hasOnDevice(context: Context): Boolean =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+
+        private fun create(context: Context): SpeechRecognizer =
+            if (!SpeechRecognizer.isRecognitionAvailable(context) && hasOnDevice(context)) {
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+            } else {
+                SpeechRecognizer.createSpeechRecognizer(context)
+            }
     }
 }

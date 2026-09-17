@@ -26,6 +26,7 @@ import com.classroomscanner.core.OutlineTracker
 import com.classroomscanner.outline.ObjectOutliner
 import com.classroomscanner.core.SearchGuide
 import com.classroomscanner.core.SearchTracker
+import com.classroomscanner.core.StickyNames
 import com.classroomscanner.databinding.FragmentSearchCameraBinding
 import com.classroomscanner.face.FaceRecognizer
 import com.classroomscanner.face.upright
@@ -73,6 +74,10 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     private var wasCentered = false
     private var lastName: String? = null
 
+    // Name decisions for tracked objects; MediaPipe result thread only.
+    private val stickyNames = StickyNames()
+    @Volatile private var resetNames = false
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentSearchCameraBinding.inflate(inflater, container, false)
         return binding.root
@@ -90,6 +95,7 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         binding.switchCamera.setOnClickListener {
             front = !front
             wasCentered = false
+            resetNames = true
             bindCamera()
         }
         view.postDelayed({
@@ -303,27 +309,31 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                 if (anyLabel) c.categoryName() != PERSON else c.categoryName() == args.targetLabel
         }
         if (kept.isEmpty()) return emptyMap()
-        val recognizer = matcher
-        return when (args.targetKind) {
-            SearchFragment.KIND_LABEL -> {
-                val names = when (recognizer) {
-                    is FaceRecognizer -> faceNames(kept, recognizer, detections, frame, w, h, rotation)
-                    is ItemRecognizer -> itemNames(kept, recognizer, detections, frame, rotation)
-                    else -> emptyMap()
-                }
-                kept.associateWith { names[it] }
+        if (resetNames) {
+            resetNames = false
+            stickyNames.clear()
+        }
+        val ids = stickyNames.track(
+            kept.map { if (detections[it].categories()[0].categoryName() == PERSON) PERSON else THING },
+            kept.map {
+                val box = detections[it].boundingBox()
+                floatArrayOf(box.left, box.top, box.right, box.bottom)
+            },
+        )
+        val trackOf = kept.zip(ids).toMap()
+        val undecided = kept.filter { !stickyNames.isDecided(trackOf.getValue(it)) }
+        if (undecided.isNotEmpty()) {
+            val names = when (val recognizer = matcher) {
+                is FaceRecognizer -> faceNames(undecided, recognizer, detections, frame, w, h, rotation)
+                is ItemRecognizer -> itemNames(undecided, recognizer, detections, frame, rotation, anyLabel)
+                else -> null
             }
-            SearchFragment.KIND_ITEM -> if (recognizer is ItemRecognizer) {
-                itemNames(kept, recognizer, detections, frame, rotation, anyLabel = true).mapValues { null }
-            } else {
-                emptyMap()
-            }
-            SearchFragment.KIND_PERSON -> if (recognizer is FaceRecognizer) {
-                faceNames(kept, recognizer, detections, frame, w, h, rotation).mapValues { null }
-            } else {
-                emptyMap()
-            }
-            else -> emptyMap()
+            names?.forEach { (i, name) -> stickyNames.vote(trackOf.getValue(i), name) }
+        }
+        return if (args.targetKind == SearchFragment.KIND_LABEL) {
+            kept.associateWith { stickyNames.nameOf(trackOf.getValue(it)) }
+        } else {
+            kept.filter { stickyNames.nameOf(trackOf.getValue(it)) != null }.associateWith { null }
         }
     }
 
@@ -414,5 +424,6 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         const val KEY_FRONT = "search_front"
         const val PERSON = "person"
         const val OUTLINE_KEY = "target"
+        const val THING = "thing"
     }
 }

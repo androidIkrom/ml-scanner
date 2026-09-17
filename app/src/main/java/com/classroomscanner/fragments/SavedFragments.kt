@@ -207,7 +207,10 @@ class AddItemFragment : Fragment() {
     private val binding get() = _binding!!
 
     private val voice = VoiceInputController(this) { text ->
-        _binding?.nameInput?.setText(text.replaceFirstChar { it.uppercase() })
+        val name = text.replaceFirstChar { it.uppercase() }
+        _binding?.nameInput?.setText(name)
+        _binding?.nameInput?.setSelection(name.length)
+        speak(getString(R.string.name_heard, name))
     }
 
     private val requestCamera =
@@ -228,8 +231,14 @@ class AddItemFragment : Fragment() {
         binding.nameInput.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         binding.hint.setText(if (car) R.string.add_car_hint else R.string.add_object_hint)
         binding.startButton.setText(if (car) R.string.add_car else R.string.add_object)
-        binding.nameLayout.isEndIconVisible = voice.available
-        binding.nameLayout.setEndIconOnClickListener { voice.listen() }
+        binding.sayNameButton.setOnClickListener { voice.listen() }
+        voice.onListening = { listening ->
+            _binding?.sayNameButton?.setText(if (listening) R.string.listening else R.string.say_name)
+        }
+        // Blind users can say the name right away.
+        if (savedInstanceState == null && voice.available) {
+            view.postDelayed({ if (_binding != null) voice.listen() }, AUTO_LISTEN_DELAY_MS)
+        }
         binding.startButton.setOnClickListener {
             if (name().isEmpty()) {
                 speak(getString(R.string.person_name_error))
