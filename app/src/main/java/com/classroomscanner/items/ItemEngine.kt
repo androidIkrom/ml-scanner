@@ -53,8 +53,9 @@ class ItemRecognizer(context: Context, private val known: List<KnownItem>) : Clo
     /** Detector labels that have at least one saved item. */
     val labels: Set<String> = known.map { it.label }.toSet()
 
-    fun match(crop: Bitmap, label: String): ItemMatch? {
-        if (label !in labels) return null
+    /** A null [label] compares the crop with items of every label. */
+    fun match(crop: Bitmap, label: String?): ItemMatch? {
+        if (label != null && label !in labels) return null
         return ItemMatcher.bestMatch(embedder.embed(crop), label, known)
     }
 

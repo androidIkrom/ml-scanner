@@ -101,4 +101,15 @@ class BoxGeometryTest {
         // 270: x' = y, y' = w - x
         assertEquals(listOf(50f, 440f, 150f, 540f), BoxGeometry.toUpright(100f, 50f, 200f, 150f, 640, 480, 270).toList())
     }
+
+    @Test
+    fun uprightPointsGoBackToRaw() {
+        for (rotation in listOf(0, 90, 180, 270)) {
+            val box = BoxGeometry.toUpright(100f, 50f, 200f, 150f, 640, 480, rotation)
+            val raw = BoxGeometry.uprightPointsToRaw(floatArrayOf(box[0], box[1], box[2], box[3]), 640, 480, rotation)
+            val xs = listOf(raw[0], raw[2]).sorted()
+            val ys = listOf(raw[1], raw[3]).sorted()
+            assertEquals("rotation $rotation", listOf(100f, 200f, 50f, 150f), xs + ys)
+        }
+    }
 }

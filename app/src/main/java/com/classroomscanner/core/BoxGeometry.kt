@@ -40,6 +40,27 @@ object BoxGeometry {
         }
     }
 
+    /**
+     * Upright-image points (`x0, y0, x1, y1, ...`) back in unrotated camera buffer pixels;
+     * the inverse of [toUpright].
+     */
+    fun uprightPointsToRaw(points: FloatArray, imageWidth: Int, imageHeight: Int, rotationDegrees: Int): FloatArray {
+        val w = imageWidth.toFloat()
+        val h = imageHeight.toFloat()
+        val out = FloatArray(points.size)
+        for (i in 0 until points.size - 1 step 2) {
+            val x = points[i]
+            val y = points[i + 1]
+            when (rotationDegrees) {
+                90 -> { out[i] = y; out[i + 1] = h - x }
+                180 -> { out[i] = w - x; out[i + 1] = h - y }
+                270 -> { out[i] = w - y; out[i + 1] = x }
+                else -> { out[i] = x; out[i + 1] = y }
+            }
+        }
+        return out
+    }
+
     /** The front camera looks backward when the phone is upright, so its base direction is turned by 180°. */
     fun objectAngle(
         relHeading: Float,

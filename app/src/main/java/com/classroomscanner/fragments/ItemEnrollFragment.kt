@@ -27,6 +27,7 @@ import com.classroomscanner.core.Candidate
 import com.classroomscanner.core.CenterPick
 import com.classroomscanner.core.ItemEnrollmentGuide
 import com.classroomscanner.core.ItemKind
+import com.classroomscanner.core.ItemMatcher
 import com.classroomscanner.core.ItemStep
 import com.classroomscanner.core.OutlineTracker
 import com.classroomscanner.databinding.FragmentEnrollBinding
@@ -71,7 +72,7 @@ class ItemEnrollFragment : Fragment() {
     private var embedder: ItemEmbedder? = null
     private val guide = ItemEnrollmentGuide()
     private val vectors = mutableListOf<FloatArray>()
-    private var lockedLabel: String? = null
+    private val seenLabels = mutableListOf<String>()
     private var photo: Bitmap? = null
     private var lastSampleAt = 0L
     private var lastFrameAt = 0L
@@ -188,8 +189,7 @@ class ItemEnrollFragment : Fragment() {
             val all = result.detections()
             val allowed = all.indices.filter { i ->
                 val c = all[i].categories()[0]
-                c.score() >= MIN_SCORE && kind.allows(c.categoryName()) &&
-                    (lockedLabel == null || c.categoryName() == lockedLabel)
+                c.score() >= MIN_SCORE && kind.allows(c.categoryName())
             }
             val w = upright.width.toFloat()
             val h = upright.height.toFloat()
@@ -197,7 +197,7 @@ class ItemEnrollFragment : Fragment() {
                 val box = all[it].boundingBox()
                 Candidate(box.centerX() / w, box.centerY() / h, box.width() * box.height() / (w * h))
             }
-            val pick = CenterPick.pick(candidates, if (lockedLabel == null) FIRST_MIN_AREA else NEXT_MIN_AREA)
+            val pick = CenterPick.pick(candidates, if (seenLabels.isEmpty()) FIRST_MIN_AREA else NEXT_MIN_AREA)
             val sampleDue = SystemClock.uptimeMillis() - lastSampleAt >= SAMPLE_GAP_MS
             if (pick == null) {
                 onMain { binding.overlay.clear() }
@@ -211,7 +211,7 @@ class ItemEnrollFragment : Fragment() {
             if (!sampleDue) return
             val crop = upright.cropBox(box.left, box.top, box.right, box.bottom) ?: return warn()
             vectors += embedder.embed(crop)
-            if (lockedLabel == null) lockedLabel = label
+            seenLabels += label
             if (photo == null) photo = crop
             guide.offer()
             lastSampleAt = SystemClock.uptimeMillis()
@@ -287,7 +287,7 @@ class ItemEnrollFragment : Fragment() {
 
     private fun save() {
         val image = photo ?: return
-        val label = lockedLabel ?: return
+        val label = ItemMatcher.mostCommon(seenLabels) ?: return
         val collected = vectors.toList()
         val name = args.name
         val itemKind = kind
@@ -320,7 +320,7 @@ class ItemEnrollFragment : Fragment() {
 
     private companion object {
         const val TAG = "ClassroomScanner"
-        const val MIN_SCORE = 0.4f
+        const val MIN_SCORE = 0.3f
         const val FIRST_MIN_AREA = 0.05f
         const val NEXT_MIN_AREA = 0.01f
         const val SAMPLE_GAP_MS = 400L

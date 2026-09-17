@@ -462,7 +462,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             floatArrayOf(box.left, box.top, box.right, box.bottom)
         }
         val classLabels = result.detections().map { it.categories()[0].categoryName() }
-        requestOutlines(frame, evaluated, rawBoxes, classLabels)
+        requestOutlines(frame, resultBundle.inputImageRotation, evaluated, rawBoxes, classLabels)
         val outlines = evaluated.mapIndexed { i, e ->
             if (e.kept) outlineTracker.lookup(classLabels[i], rawBoxes[i]) else null
         }
@@ -539,6 +539,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     /** Starts shape finding for the largest kept boxes unless a run is still going. Result thread. */
     private fun requestOutlines(
         frame: Bitmap?,
+        rotation: Int,
         evaluated: List<Evaluated>,
         boxes: List<FloatArray>,
         labels: List<String>,
@@ -553,7 +554,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         try {
             outlineExecutor.execute {
                 try {
-                    val segments = shapes.outline(frame, picked.map { boxes[it] })
+                    val segments = shapes.outlineRaw(frame, rotation, picked.map { boxes[it] })
                     outlineTracker.replace(
                         picked.indices.mapNotNull { k ->
                             segments[k]?.let { OutlineTracker.Entry(labels[picked[k]], boxes[picked[k]], it) }

@@ -22,6 +22,8 @@ import androidx.navigation.fragment.navArgs
 import com.classroomscanner.ObjectDetectorHelper
 import com.classroomscanner.R
 import com.classroomscanner.core.BoxGeometry
+import com.classroomscanner.core.OutlineTracker
+import com.classroomscanner.outline.ObjectOutliner
 import com.classroomscanner.core.SearchGuide
 import com.classroomscanner.core.SearchTracker
 import com.classroomscanner.databinding.FragmentSearchCameraBinding
@@ -39,7 +41,9 @@ import kotlinx.coroutines.runBlocking
 import java.io.Closeable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Looks for one target (saved person, saved item or COCO label) and guides the user to it with
@@ -58,6 +62,12 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     private lateinit var tracker: SearchTracker
 
     @Volatile private var matcher: Closeable? = null
+
+    // The target's shape is found on its own thread, one frame at a time.
+    private lateinit var outlineExecutor: ExecutorService
+    @Volatile private var outliner: ObjectOutliner? = null
+    private val outlineBusy = AtomicBoolean(false)
+    private val outlineTracker = OutlineTracker()
     @Volatile private var failed = false
     private var front = false
     private var wasCentered = false
@@ -88,6 +98,15 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
             }
         }, FIRST_SPEECH_DELAY_MS)
 
+        outlineExecutor = Executors.newSingleThreadExecutor()
+        outlineExecutor.execute {
+            outliner = try {
+                ObjectOutliner(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "Search outline unavailable", e)
+                null
+            }
+        }
         executor = Executors.newSingleThreadExecutor()
         executor.execute {
             detector = ObjectDetectorHelper(
@@ -121,6 +140,10 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
             if (this::detector.isInitialized) detector.clearObjectDetector()
             m?.close()
         }
+        val shapes = outliner
+        outliner = null
+        outlineExecutor.execute { shapes?.close() }
+        outlineExecutor.shutdown()
         executor.shutdown()
         executor.awaitTermination(2, TimeUnit.SECONDS)
     }
@@ -236,12 +259,19 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
             if (front) 1f - c else c
         }
         val labels = detections.indices.map { i -> if (i in found) found[i] ?: args.targetName else null }
+        val outlines = detections.indices.map { i ->
+            if (i != best || frame == null) return@map null
+            val box = detections[i].boundingBox()
+            val rect = floatArrayOf(box.left, box.top, box.right, box.bottom)
+            requestOutline(frame, rotation, rect)
+            outlineTracker.lookup(OUTLINE_KEY, rect)
+        }
         val bestName = best?.let { found[it] }
         val now = SystemClock.uptimeMillis()
 
         activity?.runOnUiThread {
             val b = _binding ?: return@runOnUiThread
-            b.overlay.setResults(result, h, w, rotation, labels, null)
+            b.overlay.setResults(result, h, w, rotation, labels, outlines)
             b.overlay.invalidate()
             val said = tracker.update(now, centerX)
             val naming = if (bestName != null && bestName != lastName) "That is $bestName." else null
@@ -265,9 +295,12 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         h: Int,
         rotation: Int,
     ): Map<Int, String?> {
+        // A saved item is matched by its look, so similar classes (laptop, tv, keyboard) all count.
+        val anyLabel = args.targetKind == SearchFragment.KIND_ITEM
         val kept = detections.indices.filter {
             val c = detections[it].categories()[0]
-            c.score() >= MIN_SCORE && c.categoryName() == args.targetLabel
+            c.score() >= MIN_SCORE &&
+                if (anyLabel) c.categoryName() != PERSON else c.categoryName() == args.targetLabel
         }
         if (kept.isEmpty()) return emptyMap()
         val recognizer = matcher
@@ -281,7 +314,7 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                 kept.associateWith { names[it] }
             }
             SearchFragment.KIND_ITEM -> if (recognizer is ItemRecognizer) {
-                itemNames(kept, recognizer, detections, frame, rotation).mapValues { null }
+                itemNames(kept, recognizer, detections, frame, rotation, anyLabel = true).mapValues { null }
             } else {
                 emptyMap()
             }
@@ -301,8 +334,10 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         detections: List<Detection>,
         frame: Bitmap?,
         rotation: Int,
+        anyLabel: Boolean = false,
     ): Map<Int, String> {
         if (frame == null) return emptyMap()
+        val label = if (anyLabel) null else args.targetLabel
         val names = HashMap<Int, String>()
         indices.sortedByDescending {
             val box = detections[it].boundingBox()
@@ -310,7 +345,7 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         }.take(MAX_ITEM_CROPS).forEach { i ->
             val box = detections[i].boundingBox()
             val crop = frame.cropBox(box.left, box.top, box.right, box.bottom)?.upright(rotation) ?: return@forEach
-            runCatching { recognizer.match(crop, args.targetLabel) }.getOrNull()?.let { names[i] = it.name }
+            runCatching { recognizer.match(crop, label) }.getOrNull()?.let { names[i] = it.name }
         }
         return names
     }
@@ -340,6 +375,26 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         return names
     }
 
+    /** Starts shape finding for the target box unless a run is still going. MediaPipe result thread. */
+    private fun requestOutline(frame: Bitmap, rotation: Int, rect: FloatArray) {
+        val shapes = outliner ?: return
+        if (!outlineBusy.compareAndSet(false, true)) return
+        try {
+            outlineExecutor.execute {
+                try {
+                    val points = shapes.outlineRaw(frame, rotation, listOf(rect))[0]
+                    outlineTracker.replace(listOfNotNull(points?.let { OutlineTracker.Entry(OUTLINE_KEY, rect, it) }))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Search outline failed", e)
+                } finally {
+                    outlineBusy.set(false)
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            outlineBusy.set(false)
+        }
+    }
+
     override fun onError(error: String, errorCode: Int) {
         Log.e(TAG, error)
         activity?.runOnUiThread { if (_binding != null) showAndSay(getString(R.string.search_unavailable)) }
@@ -358,5 +413,6 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         const val FIRST_SPEECH_DELAY_MS = 800L
         const val KEY_FRONT = "search_front"
         const val PERSON = "person"
+        const val OUTLINE_KEY = "target"
     }
 }

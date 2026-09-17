@@ -26,17 +26,22 @@ object ItemMatcher {
     /** Starting value for mobilenet_v3_small embeddings; tune on the device. */
     const val THRESHOLD = 0.75f
 
+    /** Best item above [threshold]; a null [label] compares items of every label. */
     fun bestMatch(
         vector: FloatArray,
-        label: String,
+        label: String?,
         known: List<KnownItem>,
         threshold: Float = THRESHOLD,
     ): ItemMatch? =
         known.asSequence()
-            .filter { it.label == label }
+            .filter { label == null || it.label == label }
             .map { ItemMatch(it.itemId, it.name, FaceMatcher.cosine(vector, it.vector)) }
             .filter { it.similarity >= threshold }
             .maxByOrNull { it.similarity }
+
+    /** The label seen most often while enrolling (the detector may flip between similar classes). */
+    fun mostCommon(labels: List<String>): String? =
+        labels.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
 }
 
 enum class ItemStep(val instruction: String) {

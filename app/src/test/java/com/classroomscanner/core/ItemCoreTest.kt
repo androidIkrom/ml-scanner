@@ -43,6 +43,18 @@ class ItemMatcherTest {
     }
 
     @Test
+    fun nullLabelMatchesAnyLabel() {
+        val match = ItemMatcher.bestMatch(floatArrayOf(1f, 0.1f), null, listOf(bag, otherBag))
+        assertEquals(1L, match!!.itemId)
+    }
+
+    @Test
+    fun mostCommonLabelWins() {
+        assertEquals("laptop", ItemMatcher.mostCommon(listOf("tv", "laptop", "laptop", "keyboard")))
+        assertNull(ItemMatcher.mostCommon(emptyList()))
+    }
+
+    @Test
     fun belowThresholdIsNull() {
         assertNull(ItemMatcher.bestMatch(floatArrayOf(1f, 1f), "backpack", listOf(otherBag), threshold = 0.9f))
         assertNull(ItemMatcher.bestMatch(floatArrayOf(1f, 0f), "backpack", emptyList()))

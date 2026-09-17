@@ -121,7 +121,7 @@
     <string name="add_object_hint">Point the camera at the object. It should be in the middle of the view.</string>
     <string name="delete_item_message">Its photo and image data will be removed from this phone.</string>
     <string name="unknown_command">Say full scan, live scan, history, saved, or find followed by a name.</string>
-    <string name="item_enroll_no_object">Point the camera at the object.</string>
+    <string name="item_enroll_no_object">Point the camera at the object. Step back so all of it is in view.</string>
     <string name="item_enroll_failed">Item scan could not start.</string>
     <string name="search_prompt">What should I find?</string>
     <string name="search_hint">Tap the microphone and say a name, like my bag, Ali, or chair.</string>

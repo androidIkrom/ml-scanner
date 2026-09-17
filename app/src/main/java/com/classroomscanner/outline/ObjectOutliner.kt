@@ -2,7 +2,9 @@ package com.classroomscanner.outline
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.classroomscanner.core.BoxGeometry
 import com.classroomscanner.core.MaskOutline
+import com.classroomscanner.face.upright
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.ByteBufferExtractor
 import com.google.mediapipe.tasks.components.containers.NormalizedKeypoint
@@ -56,6 +58,22 @@ class ObjectOutliner(context: Context) : Closeable {
                 for (i in loop.indices) loop[i] /= if (i % 2 == 0) sx else sy
                 loop
             }
+        }
+    }
+
+    /**
+     * Like [outline], but [frame] is an unrotated camera buffer and [boxes] are in its pixels.
+     * The model works best on upright images, so the frame is turned first and the shapes are
+     * turned back.
+     */
+    fun outlineRaw(frame: Bitmap, rotationDegrees: Int, boxes: List<FloatArray>): List<FloatArray?> {
+        if (boxes.isEmpty()) return emptyList()
+        val upright = frame.upright(rotationDegrees)
+        val uprightBoxes = boxes.map {
+            BoxGeometry.toUpright(it[0], it[1], it[2], it[3], frame.width, frame.height, rotationDegrees)
+        }
+        return outline(upright, uprightBoxes).map { points ->
+            points?.let { BoxGeometry.uprightPointsToRaw(it, frame.width, frame.height, rotationDegrees) }
         }
     }
 
