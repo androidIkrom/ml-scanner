@@ -121,4 +121,16 @@
     <string name="add_object_hint">Point the camera at the object. It should be in the middle of the view.</string>
     <string name="delete_item_message">Its photo and image data will be removed from this phone.</string>
     <string name="unknown_command">Say full scan, live scan, history, saved, or find followed by a name.</string>
+    <string name="item_enroll_no_object">Point the camera at the object.</string>
+    <string name="item_enroll_failed">Item scan could not start.</string>
+    <string name="search_prompt">What should I find?</string>
+    <string name="search_hint">Tap the microphone and say a name, like my bag, Ali, or chair.</string>
+    <string name="search_speak">Tap to speak</string>
+    <string name="search_text">Or type it</string>
+    <string name="search_go">Search</string>
+    <string name="search_unknown">I can\'t search for %s. Try again.</string>
+    <string name="search_nothing">Say what to find.</string>
+    <string name="searching_for">Searching for %s</string>
+    <string name="search_start_hint">Turn slowly. I will beep when I see it.</string>
+    <string name="search_unavailable">Search is not available.</string>
 </resources>
