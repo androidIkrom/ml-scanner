@@ -1772,7 +1772,7 @@ class HomeFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         val here = R.id.home_fragment
         binding.cardScan.setOnClickListener { goFrom(here, HomeFragmentDirections.actionHomeToScanHub()) }
-        binding.cardSearch.setOnClickListener { goFrom(here, HomeFragmentDirections.actionHomeToSearch(null)) }
+        binding.cardSearch.setOnClickListener { goFrom(here, HomeFragmentDirections.actionHomeToSearch()) }
         binding.cardSaved.setOnClickListener { goFrom(here, HomeFragmentDirections.actionHomeToSaved()) }
 
         binding.voiceButton.setOnClickListener { voice.listen() }
@@ -1799,7 +1799,7 @@ class HomeFragment : Fragment() {
             VoiceCommand.LiveScan -> goFrom(here, HomeFragmentDirections.actionHomeToSettings(ScanMode.LIVE))
             VoiceCommand.History -> goFrom(here, HomeFragmentDirections.actionHomeToHistory())
             VoiceCommand.Saved -> goFrom(here, HomeFragmentDirections.actionHomeToSaved())
-            is VoiceCommand.Search -> goFrom(here, HomeFragmentDirections.actionHomeToSearch(command.query))
+            is VoiceCommand.Search -> goFrom(here, HomeFragmentDirections.actionHomeToSearch().setQuery(command.query))
             VoiceCommand.Unknown -> speak(getString(R.string.unknown_command))
         }
     }

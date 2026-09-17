@@ -7,21 +7,15 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.Toolbar
-import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavDirections
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
-import androidx.recyclerview.widget.LinearLayoutManager
 import com.classroomscanner.MainActivity
 import com.classroomscanner.R
 import com.classroomscanner.databinding.FragmentAddPersonBinding
-import com.classroomscanner.databinding.FragmentPeopleBinding
 import com.classroomscanner.databinding.FragmentPersonBinding
-import com.classroomscanner.people.PeopleAdapter
 import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.people.PhotoLoader
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -39,45 +33,6 @@ internal fun Fragment.goFrom(fromId: Int, directions: NavDirections) {
 /** Speaks through the app's voice guide even when it is switched off (for errors and results). */
 internal fun Fragment.speak(text: String) {
     (activity as? MainActivity)?.voiceGuide?.say(text)
-}
-
-/** Saved people; the big button at the bottom adds a new one. */
-class PeopleFragment : Fragment() {
-
-    private var _binding: FragmentPeopleBinding? = null
-    private val binding get() = _binding!!
-
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        _binding = FragmentPeopleBinding.inflate(inflater, container, false)
-        return binding.root
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-        val adapter = PeopleAdapter { person ->
-            goFrom(R.id.people_fragment, PeopleFragmentDirections.actionPeopleToPerson(person.id))
-        }
-        binding.list.layoutManager = LinearLayoutManager(requireContext())
-        binding.list.adapter = adapter
-        binding.addPersonButton.setOnClickListener {
-            goFrom(R.id.people_fragment, PeopleFragmentDirections.actionPeopleToAddPerson())
-        }
-
-        val repository = PeopleRepository(requireContext())
-        viewLifecycleOwner.lifecycleScope.launch {
-            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                repository.people().collect { people ->
-                    adapter.submitList(people)
-                    binding.empty.isVisible = people.isEmpty()
-                }
-            }
-        }
-    }
-
-    override fun onDestroyView() {
-        _binding = null
-        super.onDestroyView()
-    }
 }
 
 /** One saved person: photo, name and Delete. */

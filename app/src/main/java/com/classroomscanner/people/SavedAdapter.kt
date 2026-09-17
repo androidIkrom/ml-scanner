@@ -9,8 +9,11 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.classroomscanner.databinding.ItemPersonBinding
 
-class PeopleAdapter(private val onOpen: (PersonEntity) -> Unit) :
-    ListAdapter<PersonEntity, PeopleAdapter.Holder>(Diff) {
+/** One row in a Saved tab: a person, car or object. */
+data class SavedRow(val id: Long, val name: String, val photoPath: String)
+
+class SavedAdapter(private val onOpen: (SavedRow) -> Unit) :
+    ListAdapter<SavedRow, SavedAdapter.Holder>(Diff) {
 
     class Holder(val binding: ItemPersonBinding) : RecyclerView.ViewHolder(binding.root)
 
@@ -18,15 +21,15 @@ class PeopleAdapter(private val onOpen: (PersonEntity) -> Unit) :
         Holder(ItemPersonBinding.inflate(LayoutInflater.from(parent.context), parent, false))
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
-        val person = getItem(position)
-        holder.binding.name.text = person.name
-        holder.binding.photo.setImageBitmap(PhotoLoader.load(person.photoPath, THUMB_PX))
-        holder.binding.root.setOnClickListener { onOpen(person) }
+        val row = getItem(position)
+        holder.binding.name.text = row.name
+        holder.binding.photo.setImageBitmap(PhotoLoader.load(row.photoPath, THUMB_PX))
+        holder.binding.root.setOnClickListener { onOpen(row) }
     }
 
-    private object Diff : DiffUtil.ItemCallback<PersonEntity>() {
-        override fun areItemsTheSame(oldItem: PersonEntity, newItem: PersonEntity) = oldItem.id == newItem.id
-        override fun areContentsTheSame(oldItem: PersonEntity, newItem: PersonEntity) = oldItem == newItem
+    private object Diff : DiffUtil.ItemCallback<SavedRow>() {
+        override fun areItemsTheSame(oldItem: SavedRow, newItem: SavedRow) = oldItem.id == newItem.id
+        override fun areContentsTheSame(oldItem: SavedRow, newItem: SavedRow) = oldItem == newItem
     }
 
     private companion object {

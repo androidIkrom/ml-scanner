@@ -206,7 +206,7 @@ class EnrollFragment : Fragment() {
             val done = getString(R.string.enroll_done, name)
             speech.speakNow(done)
             _binding?.instruction?.text = done
-            findNavController().popBackStack(R.id.people_fragment, false)
+            findNavController().popBackStack(R.id.saved_fragment, false)
         }
     }
 

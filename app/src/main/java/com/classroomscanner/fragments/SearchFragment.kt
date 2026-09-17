@@ -1,0 +1,5 @@
+package com.classroomscanner.fragments
+
+import androidx.fragment.app.Fragment
+
+class SearchFragment : Fragment()
