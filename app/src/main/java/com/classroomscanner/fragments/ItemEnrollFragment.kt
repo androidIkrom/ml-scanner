@@ -2,6 +2,7 @@ package com.classroomscanner.fragments
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.graphics.RectF
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -32,8 +33,10 @@ import com.classroomscanner.face.upright
 import com.classroomscanner.items.ItemEmbedder
 import com.classroomscanner.items.ItemRepository
 import com.classroomscanner.items.cropBox
+import com.classroomscanner.outline.ObjectOutliner
 import com.classroomscanner.speech.SpeechAnnouncer
 import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetectorResult
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,11 +60,13 @@ class ItemEnrollFragment : Fragment() {
     // Executor thread only.
     private var detector: ObjectDetectorHelper? = null
     private var embedder: ItemEmbedder? = null
+    private var outliner: ObjectOutliner? = null
     private val guide = ItemEnrollmentGuide()
     private val vectors = mutableListOf<FloatArray>()
     private var lockedLabel: String? = null
     private var photo: Bitmap? = null
     private var lastSampleAt = 0L
+    private var lastFrameAt = 0L
     private var lastWarningAt = 0L
     private var finished = false
 
@@ -86,12 +91,20 @@ class ItemEnrollFragment : Fragment() {
                     context = context,
                 )
                 embedder = ItemEmbedder(context)
+                outliner = try {
+                    ObjectOutliner(context)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Item outline unavailable", e)
+                    null
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Item models failed to load", e)
                 finished = true
                 onMain { showStatus(getString(R.string.item_enroll_failed), speakIt = true) }
             }
         }
+        binding.overlay.setRunningMode(RunningMode.LIVE_STREAM)
+        binding.overlay.mirrored = args.front
         showProgress(0)
         binding.instruction.text = ItemStep.STILL.instruction
         view.postDelayed({ if (_binding != null) speech.speakNow(ItemStep.STILL.instruction) }, FIRST_SPEECH_DELAY_MS)
@@ -105,6 +118,7 @@ class ItemEnrollFragment : Fragment() {
         executor.execute {
             detector?.clearObjectDetector()
             embedder?.close()
+            outliner?.close()
         }
         executor.shutdown()
         executor.awaitTermination(2, TimeUnit.SECONDS)
@@ -146,39 +160,65 @@ class ItemEnrollFragment : Fragment() {
         val frame: Bitmap
         val rotation: Int
         proxy.use {
-            if (finished || SystemClock.uptimeMillis() - lastSampleAt < SAMPLE_GAP_MS) return
+            if (finished || SystemClock.uptimeMillis() - lastFrameAt < FRAME_GAP_MS) return
             frame = Bitmap.createBitmap(it.width, it.height, Bitmap.Config.ARGB_8888)
             frame.copyPixelsFromBuffer(it.planes[0].buffer)
             rotation = it.imageInfo.rotationDegrees
         }
+        lastFrameAt = SystemClock.uptimeMillis()
         val detector = detector ?: return
         val embedder = embedder ?: return
         try {
             val upright = frame.upright(rotation)
-            val detections = detector.detectImage(upright)?.results?.firstOrNull()?.detections().orEmpty()
-                .filter { d ->
-                    val c = d.categories()[0]
-                    c.score() >= MIN_SCORE && kind.allows(c.categoryName()) &&
-                        (lockedLabel == null || c.categoryName() == lockedLabel)
-                }
+            val result = detector.detectImage(upright)?.results?.firstOrNull() ?: return
+            val all = result.detections()
+            val allowed = all.indices.filter { i ->
+                val c = all[i].categories()[0]
+                c.score() >= MIN_SCORE && kind.allows(c.categoryName()) &&
+                    (lockedLabel == null || c.categoryName() == lockedLabel)
+            }
             val w = upright.width.toFloat()
             val h = upright.height.toFloat()
-            val candidates = detections.map {
-                val box = it.boundingBox()
+            val candidates = allowed.map {
+                val box = all[it].boundingBox()
                 Candidate(box.centerX() / w, box.centerY() / h, box.width() * box.height() / (w * h))
             }
-            val index = CenterPick.pick(candidates, if (lockedLabel == null) FIRST_MIN_AREA else NEXT_MIN_AREA)
-                ?: return warn()
-            val box = detections[index].boundingBox()
+            val pick = CenterPick.pick(candidates, if (lockedLabel == null) FIRST_MIN_AREA else NEXT_MIN_AREA)
+            val sampleDue = SystemClock.uptimeMillis() - lastSampleAt >= SAMPLE_GAP_MS
+            if (pick == null) {
+                onMain { binding.overlay.clear() }
+                if (sampleDue) warn()
+                return
+            }
+            val index = allowed[pick]
+            val box = all[index].boundingBox()
+            val label = all[index].categories()[0].categoryName()
+            showTarget(result, upright, index, label, box)
+            if (!sampleDue) return
             val crop = upright.cropBox(box.left, box.top, box.right, box.bottom) ?: return warn()
             vectors += embedder.embed(crop)
-            if (lockedLabel == null) lockedLabel = detections[index].categories()[0].categoryName()
+            if (lockedLabel == null) lockedLabel = label
             if (photo == null) photo = crop
             guide.offer()
             lastSampleAt = SystemClock.uptimeMillis()
             onSample()
         } catch (e: Exception) {
             Log.w(TAG, "Item sample failed", e)
+        }
+    }
+
+    /** Draws the picked object's shape (or its box) over the preview. Executor thread. */
+    private fun showTarget(result: ObjectDetectorResult, upright: Bitmap, index: Int, label: String, box: RectF) {
+        val shape = outliner?.let {
+            runCatching { it.outline(upright, listOf(floatArrayOf(box.left, box.top, box.right, box.bottom)))[0] }
+                .getOrNull()
+        }
+        val count = result.detections().size
+        val labels = List(count) { if (it == index) label else null }
+        val outlines = List(count) { if (it == index) shape else null }
+        onMain {
+            binding.overlay.setResults(result, upright.height, upright.width, 0, labels, outlines)
+            binding.overlay.invalidate()
         }
     }
 
@@ -249,6 +289,7 @@ class ItemEnrollFragment : Fragment() {
         const val FIRST_MIN_AREA = 0.05f
         const val NEXT_MIN_AREA = 0.01f
         const val SAMPLE_GAP_MS = 400L
+        const val FRAME_GAP_MS = 100L
         const val WARNING_REPEAT_MS = 3_000L
         const val FIRST_SPEECH_DELAY_MS = 1_000L
     }

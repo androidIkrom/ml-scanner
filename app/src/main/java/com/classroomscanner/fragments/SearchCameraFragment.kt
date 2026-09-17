@@ -33,6 +33,7 @@ import com.classroomscanner.items.cropBox
 import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.search.Beeper
 import com.classroomscanner.speech.SpeechAnnouncer
+import com.google.mediapipe.tasks.components.containers.Detection
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import kotlinx.coroutines.runBlocking
 import java.io.Closeable
@@ -60,6 +61,7 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     @Volatile private var failed = false
     private var front = false
     private var wasCentered = false
+    private var lastName: String? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentSearchCameraBinding.inflate(inflater, container, false)
@@ -126,7 +128,10 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     private fun spokenName(): String =
         if (args.targetKind == SearchFragment.KIND_LABEL) "a ${args.targetName}" else args.targetName
 
-    /** Face recognizer (person), item recognizer (item) or nothing (label). Executor thread. */
+    /**
+     * Person: the target's faces. Item: the target's embeddings. Label: every saved person or item
+     * of that label, so found things are named; null when none are saved. Executor thread.
+     */
     private fun loadMatcher(context: Context): Closeable? = try {
         when (args.targetKind) {
             SearchFragment.KIND_PERSON -> {
@@ -149,7 +154,14 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                     ItemRecognizer(context, items)
                 }
             }
-            else -> null
+            else -> if (args.targetLabel == PERSON) {
+                val faces = runBlocking { PeopleRepository(context).knownFaces() }
+                if (faces.isEmpty()) null else FaceRecognizer(context, faces)
+            } else {
+                val items = runBlocking { ItemRepository(context).knownItems() }
+                    .filter { it.label == args.targetLabel }
+                if (items.isEmpty()) null else ItemRecognizer(context, items)
+            }
         }
     } catch (e: Exception) {
         Log.e(TAG, "Search matcher failed", e)
@@ -188,6 +200,7 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                         }
                     }
                 }
+            b.overlay.setRunningMode(RunningMode.LIVE_STREAM)
             b.overlay.mirrored = front
             b.overlay.clear()
             provider.unbindAll()
@@ -210,7 +223,8 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         val h = resultBundle.inputImageHeight
         val rotation = resultBundle.inputImageRotation
         val detections = result.detections()
-        val matches = if (failed) emptyList() else findTarget(detections, frame, w, h, rotation)
+        val found = if (failed) emptyMap() else findTarget(detections, frame, w, h, rotation)
+        val matches = found.keys
 
         val best = matches.maxByOrNull {
             val box = detections[it].boundingBox()
@@ -221,14 +235,18 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
             val c = BoxGeometry.horizontalCenter(box.left, box.top, box.right, box.bottom, w, h, rotation)
             if (front) 1f - c else c
         }
-        val labels = detections.indices.map { if (it in matches) args.targetName else null }
+        val labels = detections.indices.map { i -> if (i in found) found[i] ?: args.targetName else null }
+        val bestName = best?.let { found[it] }
         val now = SystemClock.uptimeMillis()
 
         activity?.runOnUiThread {
             val b = _binding ?: return@runOnUiThread
             b.overlay.setResults(result, h, w, rotation, labels, null)
             b.overlay.invalidate()
-            tracker.update(now, centerX)?.let { showAndSay(it) }
+            val said = tracker.update(now, centerX)
+            val naming = if (bestName != null && bestName != lastName) "That is $bestName." else null
+            if (centerX == null) lastName = null else if (bestName != null) lastName = bestName
+            listOfNotNull(said, naming).takeIf { it.isNotEmpty() }?.let { showAndSay(it.joinToString(" ")) }
             beeper.setInterval(centerX?.let { SearchGuide.beepIntervalMs(it) })
             val centered = centerX != null && SearchGuide.isCentered(centerX)
             if (centered && !wasCentered) beeper.buzz()
@@ -236,48 +254,90 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         }
     }
 
-    /** Indices of detections that are the target. MediaPipe result thread. */
+    /**
+     * Detections that are the target, each with a saved name when one was recognized (label search)
+     * or null. MediaPipe result thread.
+     */
     private fun findTarget(
-        detections: List<com.google.mediapipe.tasks.components.containers.Detection>,
+        detections: List<Detection>,
         frame: Bitmap?,
         w: Int,
         h: Int,
         rotation: Int,
-    ): List<Int> {
+    ): Map<Int, String?> {
         val kept = detections.indices.filter {
             val c = detections[it].categories()[0]
             c.score() >= MIN_SCORE && c.categoryName() == args.targetLabel
         }
-        if (kept.isEmpty()) return emptyList()
+        if (kept.isEmpty()) return emptyMap()
+        val recognizer = matcher
         return when (args.targetKind) {
-            SearchFragment.KIND_LABEL -> kept
-            SearchFragment.KIND_ITEM -> {
-                val recognizer = matcher as? ItemRecognizer ?: return emptyList()
-                if (frame == null) return emptyList()
-                kept.sortedByDescending {
-                    val box = detections[it].boundingBox()
-                    box.width() * box.height()
-                }.take(MAX_ITEM_CROPS).filter {
-                    val box = detections[it].boundingBox()
-                    val crop = frame.cropBox(box.left, box.top, box.right, box.bottom)?.upright(rotation)
-                    crop != null && runCatching { recognizer.match(crop, args.targetLabel) }.getOrNull() != null
+            SearchFragment.KIND_LABEL -> {
+                val names = when (recognizer) {
+                    is FaceRecognizer -> faceNames(kept, recognizer, detections, frame, w, h, rotation)
+                    is ItemRecognizer -> itemNames(kept, recognizer, detections, frame, rotation)
+                    else -> emptyMap()
                 }
+                kept.associateWith { names[it] }
             }
-            SearchFragment.KIND_PERSON -> {
-                val recognizer = matcher as? FaceRecognizer ?: return emptyList()
-                if (frame == null) return emptyList()
-                val faces = runCatching { recognizer.recognize(frame.upright(rotation)) }.getOrElse {
-                    Log.w(TAG, "Face search failed", it)
-                    emptyList()
-                }
-                kept.filter { i ->
-                    val box = detections[i].boundingBox()
-                    val (l, t, r, bottom) = BoxGeometry.toUpright(box.left, box.top, box.right, box.bottom, w, h, rotation).toList()
-                    faces.any { it.centerX in l..r && it.centerY in t..bottom }
-                }
+            SearchFragment.KIND_ITEM -> if (recognizer is ItemRecognizer) {
+                itemNames(kept, recognizer, detections, frame, rotation).mapValues { null }
+            } else {
+                emptyMap()
             }
-            else -> emptyList()
+            SearchFragment.KIND_PERSON -> if (recognizer is FaceRecognizer) {
+                faceNames(kept, recognizer, detections, frame, w, h, rotation).mapValues { null }
+            } else {
+                emptyMap()
+            }
+            else -> emptyMap()
         }
+    }
+
+    /** Saved item names for the largest [indices] whose crops match. */
+    private fun itemNames(
+        indices: List<Int>,
+        recognizer: ItemRecognizer,
+        detections: List<Detection>,
+        frame: Bitmap?,
+        rotation: Int,
+    ): Map<Int, String> {
+        if (frame == null) return emptyMap()
+        val names = HashMap<Int, String>()
+        indices.sortedByDescending {
+            val box = detections[it].boundingBox()
+            box.width() * box.height()
+        }.take(MAX_ITEM_CROPS).forEach { i ->
+            val box = detections[i].boundingBox()
+            val crop = frame.cropBox(box.left, box.top, box.right, box.bottom)?.upright(rotation) ?: return@forEach
+            runCatching { recognizer.match(crop, args.targetLabel) }.getOrNull()?.let { names[i] = it.name }
+        }
+        return names
+    }
+
+    /** Saved person names for person boxes that hold a recognized face. */
+    private fun faceNames(
+        indices: List<Int>,
+        recognizer: FaceRecognizer,
+        detections: List<Detection>,
+        frame: Bitmap?,
+        w: Int,
+        h: Int,
+        rotation: Int,
+    ): Map<Int, String> {
+        if (frame == null) return emptyMap()
+        val faces = runCatching { recognizer.recognize(frame.upright(rotation)) }.getOrElse {
+            Log.w(TAG, "Face search failed", it)
+            emptyList()
+        }
+        if (faces.isEmpty()) return emptyMap()
+        val names = HashMap<Int, String>()
+        for (i in indices) {
+            val box = detections[i].boundingBox()
+            val (l, t, r, b) = BoxGeometry.toUpright(box.left, box.top, box.right, box.bottom, w, h, rotation).toList()
+            faces.firstOrNull { it.centerX in l..r && it.centerY in t..b }?.let { names[i] = it.match.name }
+        }
+        return names
     }
 
     override fun onError(error: String, errorCode: Int) {
@@ -297,5 +357,6 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         const val MAX_ITEM_CROPS = 3
         const val FIRST_SPEECH_DELAY_MS = 800L
         const val KEY_FRONT = "search_front"
+        const val PERSON = "person"
     }
 }
