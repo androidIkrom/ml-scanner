@@ -28,6 +28,7 @@ import com.classroomscanner.core.CenterPick
 import com.classroomscanner.core.ItemEnrollmentGuide
 import com.classroomscanner.core.ItemKind
 import com.classroomscanner.core.ItemStep
+import com.classroomscanner.core.OutlineTracker
 import com.classroomscanner.databinding.FragmentEnrollBinding
 import com.classroomscanner.face.upright
 import com.classroomscanner.items.ItemEmbedder
@@ -42,7 +43,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Step 2 of adding a car or object: finds the thing in the middle of the view, collects image
@@ -55,12 +58,17 @@ class ItemEnrollFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var executor: ExecutorService
+
+    // Shapes are found on their own thread so sampling is not slowed down.
+    private lateinit var outlineExecutor: ExecutorService
+    @Volatile private var outliner: ObjectOutliner? = null
+    private val outlineBusy = AtomicBoolean(false)
+    private val outlineTracker = OutlineTracker()
     private lateinit var speech: SpeechAnnouncer
 
     // Executor thread only.
     private var detector: ObjectDetectorHelper? = null
     private var embedder: ItemEmbedder? = null
-    private var outliner: ObjectOutliner? = null
     private val guide = ItemEnrollmentGuide()
     private val vectors = mutableListOf<FloatArray>()
     private var lockedLabel: String? = null
@@ -82,6 +90,15 @@ class ItemEnrollFragment : Fragment() {
         val context = requireContext().applicationContext
         speech = SpeechAnnouncer(context)
         executor = Executors.newSingleThreadExecutor()
+        outlineExecutor = Executors.newSingleThreadExecutor()
+        outlineExecutor.execute {
+            outliner = try {
+                ObjectOutliner(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "Item outline unavailable", e)
+                null
+            }
+        }
         executor.execute {
             try {
                 detector = ObjectDetectorHelper(
@@ -91,12 +108,6 @@ class ItemEnrollFragment : Fragment() {
                     context = context,
                 )
                 embedder = ItemEmbedder(context)
-                outliner = try {
-                    ObjectOutliner(context)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Item outline unavailable", e)
-                    null
-                }
             } catch (e: Exception) {
                 Log.e(TAG, "Item models failed to load", e)
                 finished = true
@@ -118,8 +129,11 @@ class ItemEnrollFragment : Fragment() {
         executor.execute {
             detector?.clearObjectDetector()
             embedder?.close()
-            outliner?.close()
         }
+        val shapes = outliner
+        outliner = null
+        outlineExecutor.execute { shapes?.close() }
+        outlineExecutor.shutdown()
         executor.shutdown()
         executor.awaitTermination(2, TimeUnit.SECONDS)
     }
@@ -207,18 +221,39 @@ class ItemEnrollFragment : Fragment() {
         }
     }
 
-    /** Draws the picked object's shape (or its box) over the preview. Executor thread. */
+    /**
+     * Draws the picked object at once: its last known shape when it still fits, otherwise its box.
+     * A new shape is requested in the background. Executor thread.
+     */
     private fun showTarget(result: ObjectDetectorResult, upright: Bitmap, index: Int, label: String, box: RectF) {
-        val shape = outliner?.let {
-            runCatching { it.outline(upright, listOf(floatArrayOf(box.left, box.top, box.right, box.bottom)))[0] }
-                .getOrNull()
-        }
+        val rect = floatArrayOf(box.left, box.top, box.right, box.bottom)
+        requestOutline(upright, label, rect)
+        val shape = outlineTracker.lookup(label, rect)
         val count = result.detections().size
         val labels = List(count) { if (it == index) label else null }
         val outlines = List(count) { if (it == index) shape else null }
         onMain {
             binding.overlay.setResults(result, upright.height, upright.width, 0, labels, outlines)
             binding.overlay.invalidate()
+        }
+    }
+
+    private fun requestOutline(upright: Bitmap, label: String, rect: FloatArray) {
+        val shapes = outliner ?: return
+        if (!outlineBusy.compareAndSet(false, true)) return
+        try {
+            outlineExecutor.execute {
+                try {
+                    val points = shapes.outline(upright, listOf(rect))[0]
+                    outlineTracker.replace(listOfNotNull(points?.let { OutlineTracker.Entry(label, rect, it) }))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Item outline failed", e)
+                } finally {
+                    outlineBusy.set(false)
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            outlineBusy.set(false)
         }
     }
 
