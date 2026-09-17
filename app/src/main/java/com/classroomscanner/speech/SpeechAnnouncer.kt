@@ -45,6 +45,14 @@ class SpeechAnnouncer(context: Context) : TextToSpeech.OnInitListener {
         nextAllowedAt = SystemClock.uptimeMillis() + GAP_MS
     }
 
+    /** Silences speech right away (before listening to the microphone). */
+    fun stop() {
+        if (isShutDown) return
+        handler.removeCallbacksAndMessages(null)
+        pending.clear()
+        tts.stop()
+    }
+
     fun shutdown() {
         if (isShutDown) return
         isShutDown = true

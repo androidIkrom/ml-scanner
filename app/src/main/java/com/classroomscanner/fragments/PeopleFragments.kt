@@ -137,6 +137,10 @@ class AddPersonFragment : Fragment() {
     private var _binding: FragmentAddPersonBinding? = null
     private val binding get() = _binding!!
 
+    private val voice = VoiceInputController(this) { text ->
+        _binding?.nameInput?.setText(text.replaceFirstChar { it.uppercase() })
+    }
+
     private val requestCamera =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startFaceScan() else speakError(getString(R.string.camera_permission_needed))
@@ -149,6 +153,8 @@ class AddPersonFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.nameLayout.isEndIconVisible = voice.available
+        binding.nameLayout.setEndIconOnClickListener { voice.listen() }
         binding.startButton.setOnClickListener {
             if (name().isEmpty()) {
                 speakError(getString(R.string.person_name_error))
@@ -165,6 +171,7 @@ class AddPersonFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        voice.release()
         _binding = null
         super.onDestroyView()
     }

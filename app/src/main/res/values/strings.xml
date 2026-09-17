@@ -92,4 +92,9 @@
     <string name="cancel">Cancel</string>
     <string name="delete_person_title">Delete %s?</string>
     <string name="delete_person_message">Their photo and face data will be removed from this phone.</string>
+    <string name="voice_input">Speak</string>
+    <string name="voice_command">Voice command</string>
+    <string name="listening">Listening…</string>
+    <string name="mic_permission_needed">Microphone access is needed for voice input.</string>
+    <string name="voice_input_unavailable">Voice input is not available on this phone.</string>
 </resources>
