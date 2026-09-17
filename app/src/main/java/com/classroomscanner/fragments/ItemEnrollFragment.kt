@@ -20,16 +20,20 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
+import com.classroomscanner.ObjectDetectorHelper
 import com.classroomscanner.R
-import com.classroomscanner.core.EnrollmentGuide
-import com.classroomscanner.core.Pose
+import com.classroomscanner.core.Candidate
+import com.classroomscanner.core.CenterPick
+import com.classroomscanner.core.ItemEnrollmentGuide
+import com.classroomscanner.core.ItemKind
+import com.classroomscanner.core.ItemStep
 import com.classroomscanner.databinding.FragmentEnrollBinding
-import com.classroomscanner.face.FaceEmbedder
-import com.classroomscanner.face.FaceFinder
-import com.classroomscanner.face.cropFace
 import com.classroomscanner.face.upright
-import com.classroomscanner.people.PeopleRepository
+import com.classroomscanner.items.ItemEmbedder
+import com.classroomscanner.items.ItemRepository
+import com.classroomscanner.items.cropBox
 import com.classroomscanner.speech.SpeechAnnouncer
+import com.google.mediapipe.tasks.vision.core.RunningMode
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,12 +42,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * Step 2 of adding a person: guides the head through five poses, collects FaceNet embeddings,
- * then saves the person. All face work runs on [executor]; views are touched on the main thread only.
+ * Step 2 of adding a car or object: finds the thing in the middle of the view, collects image
+ * embeddings from three spots, then saves it. Model work runs on [executor] only.
  */
-class EnrollFragment : Fragment() {
+class ItemEnrollFragment : Fragment() {
 
-    private val args: EnrollFragmentArgs by navArgs()
+    private val args: ItemEnrollFragmentArgs by navArgs()
     private var _binding: FragmentEnrollBinding? = null
     private val binding get() = _binding!!
 
@@ -51,14 +55,17 @@ class EnrollFragment : Fragment() {
     private lateinit var speech: SpeechAnnouncer
 
     // Executor thread only.
-    private var finder: FaceFinder? = null
-    private var embedder: FaceEmbedder? = null
-    private val guide = EnrollmentGuide()
+    private var detector: ObjectDetectorHelper? = null
+    private var embedder: ItemEmbedder? = null
+    private val guide = ItemEnrollmentGuide()
     private val vectors = mutableListOf<FloatArray>()
+    private var lockedLabel: String? = null
     private var photo: Bitmap? = null
     private var lastSampleAt = 0L
     private var lastWarningAt = 0L
     private var finished = false
+
+    private val kind get() = ItemKind.valueOf(args.kind)
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentEnrollBinding.inflate(inflater, container, false)
@@ -72,18 +79,22 @@ class EnrollFragment : Fragment() {
         executor = Executors.newSingleThreadExecutor()
         executor.execute {
             try {
-                finder = FaceFinder(accurate = true)
-                embedder = FaceEmbedder(context)
+                detector = ObjectDetectorHelper(
+                    threshold = MIN_SCORE,
+                    currentModel = ObjectDetectorHelper.MODEL_EFFICIENTDETV2,
+                    runningMode = RunningMode.IMAGE,
+                    context = context,
+                )
+                embedder = ItemEmbedder(context)
             } catch (e: Exception) {
-                Log.e(TAG, "Face models failed to load", e)
+                Log.e(TAG, "Item models failed to load", e)
                 finished = true
-                onMain { showStatus(getString(R.string.enroll_failed), speakIt = true) }
+                onMain { showStatus(getString(R.string.item_enroll_failed), speakIt = true) }
             }
         }
         showProgress(0)
-        binding.instruction.text = Pose.STRAIGHT.instruction
-        // Give the speech engine a moment to start before the first instruction.
-        view.postDelayed({ if (_binding != null) speech.speakNow(Pose.STRAIGHT.instruction) }, FIRST_SPEECH_DELAY_MS)
+        binding.instruction.text = ItemStep.STILL.instruction
+        view.postDelayed({ if (_binding != null) speech.speakNow(ItemStep.STILL.instruction) }, FIRST_SPEECH_DELAY_MS)
         binding.viewFinder.post { setUpCamera() }
     }
 
@@ -92,7 +103,7 @@ class EnrollFragment : Fragment() {
         _binding = null
         super.onDestroyView()
         executor.execute {
-            finder?.close()
+            detector?.clearObjectDetector()
             embedder?.close()
         }
         executor.shutdown()
@@ -140,38 +151,42 @@ class EnrollFragment : Fragment() {
             frame.copyPixelsFromBuffer(it.planes[0].buffer)
             rotation = it.imageInfo.rotationDegrees
         }
-        val finder = finder ?: return
+        val detector = detector ?: return
         val embedder = embedder ?: return
         try {
             val upright = frame.upright(rotation)
-            val faces = finder.find(upright)
-            when {
-                faces.isEmpty() -> warn(R.string.enroll_no_face)
-                faces.size > 1 -> warn(R.string.enroll_one_face)
-                else -> {
-                    val face = faces[0]
-                    val crop = upright.cropFace(face.boundingBox) ?: return warn(R.string.enroll_no_face)
-                    val pose = guide.currentPose
-                    if (!guide.offer(face.headEulerAngleY, face.headEulerAngleX)) {
-                        onMain { showStatus(null) }
-                        return
-                    }
-                    vectors += embedder.embed(crop)
-                    if (pose == Pose.STRAIGHT && photo == null) photo = crop
-                    lastSampleAt = SystemClock.uptimeMillis()
-                    onSample()
+            val detections = detector.detectImage(upright)?.results?.firstOrNull()?.detections().orEmpty()
+                .filter { d ->
+                    val c = d.categories()[0]
+                    c.score() >= MIN_SCORE && kind.allows(c.categoryName()) &&
+                        (lockedLabel == null || c.categoryName() == lockedLabel)
                 }
+            val w = upright.width.toFloat()
+            val h = upright.height.toFloat()
+            val candidates = detections.map {
+                val box = it.boundingBox()
+                Candidate(box.centerX() / w, box.centerY() / h, box.width() * box.height() / (w * h))
             }
+            val index = CenterPick.pick(candidates, if (lockedLabel == null) FIRST_MIN_AREA else NEXT_MIN_AREA)
+                ?: return warn()
+            val box = detections[index].boundingBox()
+            val crop = upright.cropBox(box.left, box.top, box.right, box.bottom) ?: return warn()
+            vectors += embedder.embed(crop)
+            if (lockedLabel == null) lockedLabel = detections[index].categories()[0].categoryName()
+            if (photo == null) photo = crop
+            guide.offer()
+            lastSampleAt = SystemClock.uptimeMillis()
+            onSample()
         } catch (e: Exception) {
-            Log.w(TAG, "Face sample failed", e)
+            Log.w(TAG, "Item sample failed", e)
         }
     }
 
     // Executor thread.
     private fun onSample() {
         val percent = guide.percent()
-        val next = guide.currentPose
-        val poseFinished = guide.poseFinished
+        val next = guide.currentStep
+        val stepFinished = guide.stepFinished
         val done = guide.done
         if (done) finished = true
         onMain {
@@ -179,7 +194,7 @@ class EnrollFragment : Fragment() {
             showProgress(percent)
             when {
                 done -> save()
-                poseFinished && next != null -> {
+                stepFinished && next != null -> {
                     binding.instruction.text = next.instruction
                     speech.speakNow(getString(R.string.enroll_percent, percent) + " " + next.instruction)
                 }
@@ -188,21 +203,23 @@ class EnrollFragment : Fragment() {
     }
 
     // Executor thread.
-    private fun warn(messageRes: Int) {
+    private fun warn() {
         val now = SystemClock.uptimeMillis()
         val speakIt = now - lastWarningAt > WARNING_REPEAT_MS
         if (speakIt) lastWarningAt = now
-        onMain { showStatus(getString(messageRes), speakIt) }
+        onMain { showStatus(getString(R.string.item_enroll_no_object), speakIt) }
     }
 
     private fun save() {
-        val face = photo ?: return
+        val image = photo ?: return
+        val label = lockedLabel ?: return
         val collected = vectors.toList()
         val name = args.name
+        val itemKind = kind
         binding.instruction.text = getString(R.string.enroll_saving)
-        val repository = PeopleRepository(requireContext())
+        val repository = ItemRepository(requireContext())
         lifecycleScope.launch {
-            withContext(NonCancellable) { repository.add(name, face, collected) }
+            withContext(NonCancellable) { repository.add(name, itemKind, label, image, collected) }
             val done = getString(R.string.enroll_done, name)
             speech.speakNow(done)
             _binding?.instruction?.text = done
@@ -228,7 +245,10 @@ class EnrollFragment : Fragment() {
 
     private companion object {
         const val TAG = "ClassroomScanner"
-        const val SAMPLE_GAP_MS = 350L
+        const val MIN_SCORE = 0.4f
+        const val FIRST_MIN_AREA = 0.05f
+        const val NEXT_MIN_AREA = 0.01f
+        const val SAMPLE_GAP_MS = 400L
         const val WARNING_REPEAT_MS = 3_000L
         const val FIRST_SPEECH_DELAY_MS = 1_000L
     }

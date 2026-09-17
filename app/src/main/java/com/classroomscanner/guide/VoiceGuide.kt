@@ -40,6 +40,8 @@ class VoiceGuide(context: Context) {
     /** Speaks [text] even when the guide is off (used by the on/off button itself). */
     fun say(text: String) = speech.speakNow(text)
 
+    fun stopSpeaking() = speech.stop()
+
     fun onTouch(root: View, event: MotionEvent) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {

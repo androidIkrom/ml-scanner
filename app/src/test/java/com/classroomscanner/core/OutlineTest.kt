@@ -45,6 +45,48 @@ class MaskOutlineTest {
     }
 }
 
+class MaskShapeTest {
+
+    private fun squareSegments(): FloatArray {
+        val mask = FloatArray(100) { i -> if (i % 10 in 3..6 && i / 10 in 3..6) 1f else 0f }
+        return MaskOutline.segments(mask, 10, 10, 0f, 0f, 10f, 10f, maxCells = 10)
+    }
+
+    @Test
+    fun segmentsJoinIntoOneClosedLoop() {
+        val segs = squareSegments()
+        val loop = MaskOutline.largestLoop(segs)
+        // One point per segment: every segment end is the next segment's start.
+        assertEquals(segs.size / 4, loop.size / 2)
+        for (v in loop.toList()) assertTrue(v in 2f..7f)
+    }
+
+    @Test
+    fun smallNoiseLoopIsDropped() {
+        val mask = FloatArray(400) { i ->
+            val x = i % 20
+            val y = i / 20
+            if ((x in 3..12 && y in 3..12) || (x == 17 && y == 17)) 1f else 0f
+        }
+        val loop = MaskOutline.largestLoop(MaskOutline.segments(mask, 20, 20, 0f, 0f, 20f, 20f, maxCells = 20))
+        for (v in loop.toList()) assertTrue("coordinate $v", v < 14f)
+    }
+
+    @Test
+    fun smoothingDoublesPointsAndStaysInside() {
+        val loop = MaskOutline.largestLoop(squareSegments())
+        val smooth = MaskOutline.smooth(loop, iterations = 2)
+        assertEquals(loop.size * 4, smooth.size)
+        for (v in smooth.toList()) assertTrue(v in 2f..7f)
+    }
+
+    @Test
+    fun emptyInputGivesEmptyShape() {
+        assertEquals(0, MaskOutline.largestLoop(FloatArray(0)).size)
+        assertEquals(0, MaskOutline.smooth(FloatArray(0)).size)
+    }
+}
+
 class OutlineTrackerTest {
 
     private val square = floatArrayOf(10f, 10f, 20f, 10f)
@@ -55,6 +97,14 @@ class OutlineTrackerTest {
         t.replace(listOf(OutlineTracker.Entry("chair", floatArrayOf(0f, 0f, 40f, 40f), square)))
         val moved = t.lookup("chair", floatArrayOf(5f, 0f, 45f, 40f))!!
         assertEquals(listOf(15f, 10f, 25f, 10f), moved.toList())
+    }
+
+    @Test
+    fun outlineIsScaledWhenTheBoxGrows() {
+        val t = OutlineTracker()
+        t.replace(listOf(OutlineTracker.Entry("chair", floatArrayOf(0f, 0f, 40f, 40f), floatArrayOf(0f, 0f, 40f, 40f))))
+        val grown = t.lookup("chair", floatArrayOf(-5f, -5f, 45f, 45f))!!
+        assertEquals(listOf(-5f, -5f, 45f, 45f), grown.toList())
     }
 
     @Test

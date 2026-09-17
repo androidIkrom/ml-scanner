@@ -24,14 +24,32 @@
         android:name="com.classroomscanner.fragments.HomeFragment"
         android:label="@string/label_home">
         <action
+            android:id="@+id/action_home_to_scan_hub"
+            app:destination="@id/scan_hub_fragment" />
+        <action
+            android:id="@+id/action_home_to_search"
+            app:destination="@id/search_fragment" />
+        <action
+            android:id="@+id/action_home_to_saved"
+            app:destination="@id/saved_fragment" />
+        <action
             android:id="@+id/action_home_to_settings"
             app:destination="@id/settings_fragment" />
         <action
             android:id="@+id/action_home_to_history"
             app:destination="@id/history_fragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/scan_hub_fragment"
+        android:name="com.classroomscanner.fragments.ScanHubFragment"
+        android:label="@string/label_scan_hub">
         <action
-            android:id="@+id/action_home_to_people"
-            app:destination="@id/people_fragment" />
+            android:id="@+id/action_scan_hub_to_settings"
+            app:destination="@id/settings_fragment" />
+        <action
+            android:id="@+id/action_scan_hub_to_history"
+            app:destination="@id/history_fragment" />
     </fragment>
 
     <fragment
@@ -78,15 +96,21 @@
         android:label="@string/label_history" />
 
     <fragment
-        android:id="@+id/people_fragment"
-        android:name="com.classroomscanner.fragments.PeopleFragment"
-        android:label="@string/label_people">
+        android:id="@+id/saved_fragment"
+        android:name="com.classroomscanner.fragments.SavedFragment"
+        android:label="@string/label_saved">
         <action
-            android:id="@+id/action_people_to_person"
+            android:id="@+id/action_saved_to_person"
             app:destination="@id/person_fragment" />
         <action
-            android:id="@+id/action_people_to_add_person"
+            android:id="@+id/action_saved_to_add_person"
             app:destination="@id/add_person_fragment" />
+        <action
+            android:id="@+id/action_saved_to_item"
+            app:destination="@id/item_fragment" />
+        <action
+            android:id="@+id/action_saved_to_add_item"
+            app:destination="@id/add_item_fragment" />
     </fragment>
 
     <fragment
@@ -113,6 +137,77 @@
         android:label="@string/label_enroll">
         <argument
             android:name="name"
+            app:argType="string" />
+        <argument
+            android:name="front"
+            app:argType="boolean" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/item_fragment"
+        android:name="com.classroomscanner.fragments.ItemFragment"
+        android:label="@string/label_item">
+        <argument
+            android:name="itemId"
+            app:argType="long" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/add_item_fragment"
+        android:name="com.classroomscanner.fragments.AddItemFragment"
+        android:label="@string/label_add_item">
+        <argument
+            android:name="kind"
+            app:argType="string" />
+        <action
+            android:id="@+id/action_add_item_to_item_enroll"
+            app:destination="@id/item_enroll_fragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/item_enroll_fragment"
+        android:name="com.classroomscanner.fragments.ItemEnrollFragment"
+        android:label="@string/label_item_scan">
+        <argument
+            android:name="name"
+            app:argType="string" />
+        <argument
+            android:name="kind"
+            app:argType="string" />
+        <argument
+            android:name="front"
+            app:argType="boolean" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/search_fragment"
+        android:name="com.classroomscanner.fragments.SearchFragment"
+        android:label="@string/label_search">
+        <argument
+            android:name="query"
+            android:defaultValue="@null"
+            app:argType="string"
+            app:nullable="true" />
+        <action
+            android:id="@+id/action_search_to_search_camera"
+            app:destination="@id/search_camera_fragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/search_camera_fragment"
+        android:name="com.classroomscanner.fragments.SearchCameraFragment"
+        android:label="@string/label_searching">
+        <argument
+            android:name="targetKind"
+            app:argType="string" />
+        <argument
+            android:name="targetId"
+            app:argType="long" />
+        <argument
+            android:name="targetName"
+            app:argType="string" />
+        <argument
+            android:name="targetLabel"
             app:argType="string" />
         <argument
             android:name="front"

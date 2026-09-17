@@ -40,4 +40,11 @@ task downloadModelFile3(type: Download) {
     overwrite false
 }
 
-preBuild.dependsOn downloadModelFile0, downloadModelFile1, downloadModelFile2, downloadModelFile3
+// MediaPipe image embedder for saved cars and objects.
+task downloadModelFile4(type: Download) {
+    src 'https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite'
+    dest project.ext.ASSET_DIR + '/mobilenet_v3_small.tflite'
+    overwrite false
+}
+
+preBuild.dependsOn downloadModelFile0, downloadModelFile1, downloadModelFile2, downloadModelFile3, downloadModelFile4

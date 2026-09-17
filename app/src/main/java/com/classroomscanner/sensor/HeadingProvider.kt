@@ -68,8 +68,15 @@ class HeadingProvider(context: Context, private val listener: Listener) : Sensor
         listener.onAccuracyLow(accuracy <= SensorManager.SENSOR_STATUS_ACCURACY_LOW)
     }
 
-    private companion object {
-        const val ALPHA = 0.3f
-        const val SPEED_ALPHA = 0.2f
+    companion object {
+        /** True when the phone has the rotation sensor Full Scan needs. */
+        fun isAvailable(context: Context): Boolean =
+            HeadingProvider(context, object : Listener {
+                override fun onHeading(relHeading: Float, speedDegPerSec: Float) = Unit
+                override fun onAccuracyLow(low: Boolean) = Unit
+            }).isAvailable
+
+        private const val ALPHA = 0.3f
+        private const val SPEED_ALPHA = 0.2f
     }
 }

@@ -44,9 +44,14 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
     private val outlinePaint = Paint().apply {
         style = Paint.Style.STROKE
         strokeWidth = 7f
-        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
         isAntiAlias = true
     }
+    private val fillPaint = Paint().apply {
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val shapePath = Path()
 
     /** True for the front camera: its preview is mirrored, so boxes are flipped horizontally too. */
     var mirrored: Boolean = false
@@ -81,6 +86,8 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
 
         boxPaint.color = ContextCompat.getColor(context!!, R.color.mp_primary)
         outlinePaint.color = boxPaint.color
+        fillPaint.color = boxPaint.color
+        fillPaint.alpha = FILL_ALPHA
         boxPaint.strokeWidth = 8F
         boxPaint.style = Paint.Style.STROKE
     }
@@ -115,11 +122,15 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
                 // Draw the object's shape instead of its box.
                 val points = outline.copyOf()
                 toView.mapPoints(points)
-                for (i in points.indices) {
-                    if (mirrored && i % 2 == 0) points[i] = rotatedWidth() - points[i]
-                    points[i] *= scaleFactor
+                shapePath.reset()
+                for (i in points.indices step 2) {
+                    val x = (if (mirrored) rotatedWidth() - points[i] else points[i]) * scaleFactor
+                    val y = points[i + 1] * scaleFactor
+                    if (i == 0) shapePath.moveTo(x, y) else shapePath.lineTo(x, y)
                 }
-                canvas.drawLines(points, outlinePaint)
+                shapePath.close()
+                canvas.drawPath(shapePath, fillPaint)
+                canvas.drawPath(shapePath, outlinePaint)
             } else {
                 canvas.drawRect(RectF(left, top, right, bottom), boxPaint)
             }
@@ -220,6 +231,7 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
     private fun rotatedWidth(): Int = if (outputRotate == 90 || outputRotate == 270) outputHeight else outputWidth
 
     companion object {
+        private const val FILL_ALPHA = 70
         private const val BOUNDING_RECT_TEXT_PADDING = 8
     }
 }

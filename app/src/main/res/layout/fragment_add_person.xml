@@ -12,7 +12,10 @@
         style="?attr/textInputOutlinedStyle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="@string/person_name">
+        android:hint="@string/person_name"
+        app:endIconContentDescription="@string/voice_input"
+        app:endIconDrawable="@drawable/ic_mic_24"
+        app:endIconMode="custom">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/name_input"
@@ -61,6 +64,7 @@
     </com.google.android.material.button.MaterialButtonToggleGroup>
 
     <TextView
+        android:id="@+id/hint"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"

@@ -27,8 +27,8 @@ class ObjectOutliner(context: Context) : Closeable {
     )
 
     /**
-     * Outline segments for each box (`[left, top, right, bottom]` in [frame] pixels), in frame pixels;
-     * null for a box whose shape could not be found.
+     * A smooth closed outline for each box (`[left, top, right, bottom]` in [frame] pixels), as
+     * `x0, y0, x1, y1, ...` in frame pixels; null for a box whose shape could not be found.
      */
     fun outline(frame: Bitmap, boxes: List<FloatArray>): List<FloatArray?> {
         if (boxes.isEmpty()) return emptyList()
@@ -36,45 +36,67 @@ class ObjectOutliner(context: Context) : Closeable {
         val w = frame.width.toFloat()
         val h = frame.height.toFloat()
         return boxes.map { box ->
-            val cx = (box[0] + box[2]) / 2f / w
-            val cy = (box[1] + box[3]) / 2f / h
-            val reach = (box[3] - box[1]) / h * STROKE_FRACTION
-            val stroke = Stroke.builder()
-                .setBrushMode(Stroke.BrushMode.POSITIVE)
-                .setPoints(
-                    listOf(
-                        NormalizedKeypoint.create(cx, (cy - reach).coerceIn(0f, 1f)),
-                        NormalizedKeypoint.create(cx, cy),
-                        NormalizedKeypoint.create(cx, (cy + reach).coerceIn(0f, 1f)),
-                    )
-                )
-                .setCompleted(true)
-                .build()
-            val mask = segmenter.segment(listOf(stroke))
+            val mask = segmenter.segment(strokesFor(box, w, h))
             val values = FloatArray(mask.width * mask.height)
             ByteBufferExtractor.extract(mask).asFloatBuffer().get(values)
             // The mask may be smaller than the frame; work in mask pixels, then scale back.
             val sx = mask.width / w
             val sy = mask.height / h
-            val segments = MaskOutline.segments(
-                values, mask.width, mask.height,
-                box[0] * sx, box[1] * sy, box[2] * sx, box[3] * sy,
+            val loop = MaskOutline.smooth(
+                MaskOutline.largestLoop(
+                    MaskOutline.segments(
+                        values, mask.width, mask.height,
+                        box[0] * sx, box[1] * sy, box[2] * sx, box[3] * sy,
+                    )
+                )
             )
-            if (segments.isEmpty()) {
+            if (loop.size < MIN_POINTS * 2) {
                 null
             } else {
-                for (i in segments.indices) segments[i] /= if (i % 2 == 0) sx else sy
-                segments
+                for (i in loop.indices) loop[i] /= if (i % 2 == 0) sx else sy
+                loop
             }
         }
     }
+
+    /**
+     * A positive cross through the middle of the box picks the object; a negative ring just outside
+     * the box keeps the table, wall or floor behind it out of the shape.
+     */
+    private fun strokesFor(box: FloatArray, w: Float, h: Float): List<Stroke> {
+        fun p(x: Float, y: Float) = NormalizedKeypoint.create((x / w).coerceIn(0f, 1f), (y / h).coerceIn(0f, 1f))
+        val cx = (box[0] + box[2]) / 2f
+        val cy = (box[1] + box[3]) / 2f
+        val rx = (box[2] - box[0]) * CROSS_FRACTION
+        val ry = (box[3] - box[1]) * CROSS_FRACTION
+        val padX = (box[2] - box[0]) * RING_PADDING
+        val padY = (box[3] - box[1]) * RING_PADDING
+        val l = box[0] - padX
+        val t = box[1] - padY
+        val r = box[2] + padX
+        val b = box[3] + padY
+        return listOf(
+            stroke(Stroke.BrushMode.POSITIVE, listOf(p(cx, cy - ry), p(cx, cy), p(cx, cy + ry))),
+            stroke(Stroke.BrushMode.POSITIVE, listOf(p(cx - rx, cy), p(cx, cy), p(cx + rx, cy))),
+            stroke(Stroke.BrushMode.NEGATIVE, listOf(p(l, t), p(r, t), p(r, b), p(l, b), p(l, t))),
+        )
+    }
+
+    private fun stroke(mode: Stroke.BrushMode, points: List<NormalizedKeypoint>): Stroke =
+        Stroke.builder().setBrushMode(mode).setPoints(points).setCompleted(true).build()
 
     override fun close() = segmenter.close()
 
     private companion object {
         const val MODEL = "interactive_segmentation.task"
 
-        /** Half-length of the vertical stroke, as a share of the box height. */
-        const val STROKE_FRACTION = 0.15f
+        /** Half-length of each arm of the positive cross, as a share of the box size. */
+        const val CROSS_FRACTION = 0.15f
+
+        /** How far outside the box the negative ring runs, as a share of the box size. */
+        const val RING_PADDING = 0.04f
+
+        /** Outlines with fewer points are noise. */
+        const val MIN_POINTS = 8
     }
 }
