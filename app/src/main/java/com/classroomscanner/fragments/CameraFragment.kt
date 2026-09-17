@@ -43,6 +43,9 @@ import com.classroomscanner.face.upright
 import com.classroomscanner.history.AppDatabase
 import com.classroomscanner.history.HistoryRepository
 import com.classroomscanner.outline.ObjectOutliner
+import com.classroomscanner.items.ItemRecognizer
+import com.classroomscanner.items.ItemRepository
+import com.classroomscanner.items.cropBox
 import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.scanlog.ScanLogViewModel
 import com.classroomscanner.sensor.CameraFov
@@ -103,6 +106,9 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     // Created on the detector thread, used on the MediaPipe result thread.
     @Volatile
     private var faceRecognizer: FaceRecognizer? = null
+    @Volatile
+    private var itemRecognizer: ItemRecognizer? = null
+    private var itemFrames = 0
 
     // Object shapes: segmentation runs on its own thread, one frame at a time.
     private lateinit var outlineExecutor: ExecutorService
@@ -142,11 +148,16 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         super.onDestroyView()
         val recognizer = faceRecognizer
         faceRecognizer = null
+        val items = itemRecognizer
+        itemRecognizer = null
         val shapes = outliner
         outliner = null
         outlineExecutor.execute { shapes?.close() }
         outlineExecutor.shutdown()
-        backgroundExecutor.execute { recognizer?.close() }
+        backgroundExecutor.execute {
+            recognizer?.close()
+            items?.close()
+        }
         backgroundExecutor.shutdown()
         if (!backgroundExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
             Log.w(TAG, "Detector thread still busy after 2 s")
@@ -197,6 +208,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
                 runningMode = RunningMode.LIVE_STREAM
             )
             faceRecognizer = loadRecognizer(context)
+            itemRecognizer = loadItemRecognizer(context)
             val b = _fragmentCameraBinding
             if (b == null) {
                 // The view is gone already; close the detector we just opened.
@@ -443,6 +455,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             )
             Evaluated(detection, kept, counted = kept && !touchesEdge, uprightBox = upright)
         }.let { nameKnownPeople(it, frame, resultBundle.inputImageRotation) }
+            .let { nameSavedItems(it, frame, result.detections(), resultBundle.inputImageRotation) }
         val overlayLabels = evaluated.map { if (it.kept) it.detection.overlayLabel() else null }
         val rawBoxes = result.detections().map {
             val box = it.boundingBox()
@@ -602,6 +615,53 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         null
     }
 
+
+    /**
+     * Replaces a detection's label with a saved item's name when its crop matches.
+     * Runs on the MediaPipe result thread, on every [ITEM_EVERY]th frame that has a candidate.
+     */
+    private fun nameSavedItems(
+        evaluated: List<Evaluated>,
+        frame: Bitmap?,
+        detections: List<com.google.mediapipe.tasks.components.containers.Detection>,
+        rotation: Int,
+    ): List<Evaluated> {
+        val recognizer = itemRecognizer ?: return evaluated
+        if (frame == null) return evaluated
+        val candidates = evaluated.indices
+            .filter { evaluated[it].kept && !evaluated[it].detection.isName && evaluated[it].detection.label in recognizer.labels }
+        if (candidates.isEmpty() || ++itemFrames % ITEM_EVERY != 0) return evaluated
+        val names = HashMap<Int, String>()
+        candidates.sortedByDescending {
+            val box = detections[it].boundingBox()
+            box.width() * box.height()
+        }.take(MAX_ITEM_CROPS).forEach { i ->
+            val box = detections[i].boundingBox()
+            val crop = frame.cropBox(box.left, box.top, box.right, box.bottom)?.upright(rotation) ?: return@forEach
+            val match = try {
+                recognizer.match(crop, evaluated[i].detection.label)
+            } catch (e: Exception) {
+                Log.w(TAG, "Item recognition failed", e)
+                null
+            }
+            if (match != null) names[i] = match.name
+        }
+        if (names.isEmpty()) return evaluated
+        return evaluated.mapIndexed { i, e ->
+            val name = names[i] ?: return@mapIndexed e
+            Evaluated(e.detection.copy(label = name, color = null, isName = true), e.kept, e.counted, e.uprightBox)
+        }
+    }
+
+    /** Loads saved items; null when none are saved or the model cannot start. Detector thread. */
+    private fun loadItemRecognizer(context: Context): ItemRecognizer? = try {
+        val known = runBlocking { ItemRepository(context).knownItems() }
+        if (known.isEmpty()) null else ItemRecognizer(context, known)
+    } catch (e: Exception) {
+        Log.w(TAG, "Item recognition unavailable", e)
+        null
+    }
+
     private var framesSinceTimingLog = 0
 
     // Runs on the MediaPipe result thread only.
@@ -620,6 +680,8 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
         const val SLOW_DOWN_REPEAT_MS = 5_000L
         const val TIMING_LOG_EVERY = 30
         const val FACE_EVERY = 3
+        const val ITEM_EVERY = 3
+        const val MAX_ITEM_CROPS = 3
         const val MAX_OUTLINES = 5
         const val PERSON = "person"
     }
