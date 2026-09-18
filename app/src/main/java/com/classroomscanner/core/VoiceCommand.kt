@@ -31,6 +31,12 @@ sealed interface VoiceCommand {
     /** Switches the microphone off. */
     data object StopListening : VoiceCommand
 
+    /** Explains a [ScreenHelp] topic; an empty topic means the screen the user is on. */
+    data class Help(val topic: String) : VoiceCommand
+
+    /** Turns the spoken screen introductions on or off. */
+    data class Learner(val on: Boolean) : VoiceCommand
+
     data object Unknown : VoiceCommand
 }
 
@@ -53,8 +59,24 @@ object VoiceCommandParser {
         ) {
             return VoiceCommand.StopListening
         }
+        if (t.contains("learner")) {
+            return VoiceCommand.Learner(!t.contains(" off") && !t.contains("stop"))
+        }
+        val aboutHere = t.contains("this screen") || Regex("\\bhere\\b").containsMatchIn(t)
         if (t.startsWith("who is") || t.startsWith("whos")) return VoiceCommand.IdentifyPerson
-        if (t.startsWith("what is") || t.startsWith("whats")) return VoiceCommand.IdentifyThing
+        if ((t.startsWith("what is") || t.startsWith("whats")) && !aboutHere) {
+            val rest = t.removePrefix("what is").removePrefix("whats").trim()
+            if (rest == "this" || rest == "that" || rest.isEmpty()) return VoiceCommand.IdentifyThing
+            ScreenHelp.topicOf(rest)?.let { return VoiceCommand.Help(it) }
+            return VoiceCommand.IdentifyThing
+        }
+        if (t.startsWith("what does") || t.startsWith("what do") || t.startsWith("tell me about") ||
+            t.startsWith("explain") || t.startsWith("how do i use")
+        ) {
+            ScreenHelp.topicOf(t)?.let { return VoiceCommand.Help(it) }
+            return VoiceCommand.Help("")
+        }
+        if (t == "help" || t.startsWith("help me") || aboutHere) return VoiceCommand.Help("")
         if ("search" in words && ("open" in words || "start" in words) && !t.contains("search for")) {
             return VoiceCommand.Search("")
         }

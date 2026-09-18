@@ -207,6 +207,15 @@
                         app:tint="?attr/colorOnSecondaryContainer" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/learner_toggle"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:minHeight="64dp"
+                android:text="@string/learner_state_off"
+                app:icon="@drawable/ic_notes_24" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 

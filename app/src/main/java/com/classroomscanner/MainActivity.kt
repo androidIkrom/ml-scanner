@@ -33,8 +33,10 @@ import androidx.navigation.ui.setupWithNavController
 import com.classroomscanner.databinding.ActivityMainBinding
 import com.classroomscanner.core.ItemKind
 import com.classroomscanner.core.ScanMode
+import com.classroomscanner.core.ScreenHelp
 import com.classroomscanner.core.VoiceCommand
 import com.classroomscanner.core.VoiceCommandParser
+import com.classroomscanner.guide.LearnerMode
 import com.classroomscanner.guide.VoiceCommandTarget
 import com.classroomscanner.guide.VoiceGuide
 import com.classroomscanner.guide.VoiceListener
@@ -51,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     lateinit var voiceGuide: VoiceGuide
         private set
 
+    private lateinit var learner: LearnerMode
     private lateinit var navController: NavController
     private var voiceListener: VoiceListener? = null
 
@@ -76,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         navController = navHostFragment.navController
         activityMainBinding.toolbar.setupWithNavController(navController)
 
+        learner = LearnerMode(this)
         voiceGuide = VoiceGuide(this)
         showVoiceGuideState()
         activityMainBinding.voiceGuideToggle.setOnClickListener {
@@ -86,11 +90,28 @@ class MainActivity : AppCompatActivity() {
         // The on/off button is shown on Home only.
         navController.addOnDestinationChangedListener { _, destination, _ ->
             activityMainBinding.voiceGuideToggle.isVisible = destination.id == R.id.home_fragment
+            if (learner.enabled) {
+                // After the screen has settled, so its own first announcement is not cut off.
+                val help = learner.helpFor(destination.id)
+                if (help != null) {
+                    activityMainBinding.root.postDelayed({ voiceGuide.say(help) }, SCREEN_HELP_DELAY_MS)
+                }
+            }
         }
 
         voiceListener = VoiceListener(this, ::onVoiceText) { voiceGuide.say(it) }
         showVoiceCommandState()
         activityMainBinding.voiceCommandToggle.setOnClickListener { toggleVoiceCommands() }
+    }
+
+    val learnerOn: Boolean get() = learner.enabled
+
+    /** Turns the spoken screen introductions on or off and says what happened. */
+    fun toggleLearnerMode(on: Boolean = !learner.enabled) {
+        learner.enabled = on
+        val here = learner.helpFor(navController.currentDestination?.id ?: 0)
+        val text = getString(if (on) R.string.learner_on else R.string.learner_off)
+        voiceGuide.say(if (on && here != null) "$text $here" else text)
     }
 
     /** Switches the always-on microphone on or off; asks for the permission the first time. */
@@ -132,6 +153,8 @@ class MainActivity : AppCompatActivity() {
         when (val command = VoiceCommandParser.parse(text)) {
             VoiceCommand.StopListening -> setVoiceCommands(false)
             VoiceCommand.Unknown -> voiceGuide.say(getString(R.string.voice_command_unknown))
+            is VoiceCommand.Learner -> toggleLearnerMode(command.on)
+            is VoiceCommand.Help -> explain(command.topic)
             else -> {
                 val screen = currentFragment() as? VoiceCommandTarget
                 if (screen?.onVoiceCommand(command) != true && !navigate(command)) {
@@ -139,6 +162,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /** Answers a spoken question; an empty topic means "what is on this screen". */
+    private fun explain(topic: String) {
+        val text = if (topic.isEmpty()) {
+            learner.helpFor(navController.currentDestination?.id ?: 0)
+        } else {
+            ScreenHelp.describe(topic)
+        }
+        voiceGuide.say(text ?: getString(R.string.help_unknown))
     }
 
     private fun currentFragment(): Fragment? =
@@ -182,6 +215,11 @@ class MainActivity : AppCompatActivity() {
         voiceListener?.release()
         if (this::voiceGuide.isInitialized) voiceGuide.shutdown()
         super.onDestroy()
+    }
+
+    private companion object {
+        /** Lets the new screen finish opening before it introduces itself. */
+        const val SCREEN_HELP_DELAY_MS = 700L
     }
 
     private fun showVoiceGuideState() {

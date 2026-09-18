@@ -147,4 +147,10 @@
     <string name="identify_no_person">I do not see a person in the middle.</string>
     <string name="identify_is">This is %s.</string>
     <string name="identify_scan_first">Start a scan first.</string>
+    <string name="learner_mode">Learner mode</string>
+    <string name="learner_on">Learner mode on. Every screen will say what it is for.</string>
+    <string name="learner_off">Learner mode off.</string>
+    <string name="learner_state_on">Learner mode: on</string>
+    <string name="learner_state_off">Learner mode: off</string>
+    <string name="help_unknown">I have nothing to say about that. Ask what is search, what is saved, or what is full scan.</string>
 </resources>

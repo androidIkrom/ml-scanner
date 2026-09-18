@@ -28,6 +28,16 @@ class HomeFragment : Fragment() {
         binding.cardSaved.setOnClickListener { goFrom(here, HomeFragmentDirections.actionHomeToSaved()) }
 
         binding.voiceButton.setOnClickListener { (activity as? MainActivity)?.toggleVoiceCommands() }
+        binding.learnerToggle.setOnClickListener {
+            (activity as? MainActivity)?.toggleLearnerMode()
+            showLearnerState()
+        }
+        showLearnerState()
+    }
+
+    private fun showLearnerState() {
+        val on = (activity as? MainActivity)?.learnerOn == true
+        binding.learnerToggle.setText(if (on) R.string.learner_state_on else R.string.learner_state_off)
     }
 
     override fun onDestroyView() {
