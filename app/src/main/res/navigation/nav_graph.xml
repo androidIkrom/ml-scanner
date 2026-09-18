@@ -213,4 +213,24 @@
             android:name="front"
             app:argType="boolean" />
     </fragment>
+
+    <!-- Global actions so spoken commands work from every screen. -->
+    <action
+        android:id="@+id/action_global_search"
+        app:destination="@id/search_fragment" />
+    <action
+        android:id="@+id/action_global_saved"
+        app:destination="@id/saved_fragment" />
+    <action
+        android:id="@+id/action_global_history"
+        app:destination="@id/history_fragment" />
+    <action
+        android:id="@+id/action_global_settings"
+        app:destination="@id/settings_fragment" />
+    <action
+        android:id="@+id/action_global_add_person"
+        app:destination="@id/add_person_fragment" />
+    <action
+        android:id="@+id/action_global_add_item"
+        app:destination="@id/add_item_fragment" />
 </navigation>

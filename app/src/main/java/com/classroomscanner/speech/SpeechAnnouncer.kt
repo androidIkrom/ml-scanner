@@ -19,6 +19,10 @@ class SpeechAnnouncer(context: Context) : TextToSpeech.OnInitListener {
     var available: Boolean = false
         private set
 
+    /** The last thing said, for the "repeat" command. */
+    var lastSpoken: String? = null
+        private set
+
     /** When true nothing is spoken; callers still show the text on screen. */
     var muted: Boolean = false
 
@@ -31,14 +35,23 @@ class SpeechAnnouncer(context: Context) : TextToSpeech.OnInitListener {
     /** Queues a short announcement; stale ones are dropped when the queue is long. */
     fun announce(text: String) {
         if (!available || muted) return
+        lastSpoken = text
         pending.addLast(text)
         while (pending.size > MAX_PENDING) pending.removeFirst()
         pump()
     }
 
     /** Clears the queue and speaks [text] immediately (final summaries, history replay). */
+    /** Says the last thing again; false when there was nothing. */
+    fun repeatLast(): Boolean {
+        val text = lastSpoken ?: return false
+        speakNow(text)
+        return true
+    }
+
     fun speakNow(text: String) {
         if (!available || muted) return
+        lastSpoken = text
         handler.removeCallbacksAndMessages(null)
         pending.clear()
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "summary")

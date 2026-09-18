@@ -18,6 +18,8 @@ import androidx.navigation.fragment.navArgs
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.classroomscanner.R
 import com.classroomscanner.core.ItemKind
+import com.classroomscanner.core.VoiceCommand
+import com.classroomscanner.guide.VoiceCommandTarget
 import com.classroomscanner.databinding.FragmentAddPersonBinding
 import com.classroomscanner.databinding.FragmentPersonBinding
 import com.classroomscanner.databinding.FragmentSavedBinding
@@ -36,7 +38,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Saved people, cars and objects in three tabs; the big button adds to the open tab. */
-class SavedFragment : Fragment() {
+class SavedFragment : Fragment(), VoiceCommandTarget {
 
     private var _binding: FragmentSavedBinding? = null
     private val binding get() = _binding!!
@@ -86,6 +88,19 @@ class SavedFragment : Fragment() {
             }
         }
         show(adapter)
+    }
+
+    /** Spoken commands pick the tab first, so the list behind the new thing is the right one. */
+    override fun onVoiceCommand(command: VoiceCommand): Boolean {
+        val tab = when (command) {
+            VoiceCommand.AddPerson -> TAB_PEOPLE
+            VoiceCommand.AddCar -> TAB_CARS
+            VoiceCommand.AddObject -> TAB_OBJECTS
+            else -> return false
+        }
+        _binding?.tabs?.getTabAt(tab)?.select()
+        _binding?.addButton?.performClick()
+        return true
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -144,6 +159,7 @@ class SavedFragment : Fragment() {
     private companion object {
         const val TAB_PEOPLE = 0
         const val TAB_CARS = 1
+        const val TAB_OBJECTS = 2
         const val KEY_TAB = "saved_tab"
     }
 }

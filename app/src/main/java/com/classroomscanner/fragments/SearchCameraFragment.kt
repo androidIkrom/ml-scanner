@@ -27,6 +27,8 @@ import com.classroomscanner.outline.ObjectOutliner
 import com.classroomscanner.core.SearchGuide
 import com.classroomscanner.core.SearchTracker
 import com.classroomscanner.core.StickyNames
+import com.classroomscanner.core.VoiceCommand
+import com.classroomscanner.guide.VoiceCommandTarget
 import com.classroomscanner.databinding.FragmentSearchCameraBinding
 import com.classroomscanner.face.FaceRecognizer
 import com.classroomscanner.face.upright
@@ -50,7 +52,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Looks for one target (saved person, saved item or COCO label) and guides the user to it with
  * speech, beeps and vibration. Detection results arrive on the MediaPipe result thread.
  */
-class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
+class SearchCameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.DetectorListener {
 
     private val args: SearchCameraFragmentArgs by navArgs()
     private var _binding: FragmentSearchCameraBinding? = null
@@ -403,6 +405,19 @@ class SearchCameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         } catch (e: RejectedExecutionException) {
             outlineBusy.set(false)
         }
+    }
+
+    /** Spoken commands for the search screen. Main thread. */
+    override fun onVoiceCommand(command: VoiceCommand): Boolean = when (command) {
+        VoiceCommand.SwitchCamera -> {
+            _binding?.switchCamera?.performClick()
+            true
+        }
+        VoiceCommand.Repeat -> {
+            if (!speech.repeatLast()) speech.speakNow(getString(R.string.searching_for, spokenName()))
+            true
+        }
+        else -> false
     }
 
     override fun onError(error: String, errorCode: Int) {

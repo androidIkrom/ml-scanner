@@ -16,16 +16,28 @@
 
 package com.classroomscanner
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.MotionEvent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
+import androidx.navigation.NavController
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.classroomscanner.databinding.ActivityMainBinding
+import com.classroomscanner.core.ItemKind
+import com.classroomscanner.core.ScanMode
+import com.classroomscanner.core.VoiceCommand
+import com.classroomscanner.core.VoiceCommandParser
+import com.classroomscanner.guide.VoiceCommandTarget
 import com.classroomscanner.guide.VoiceGuide
+import com.classroomscanner.guide.VoiceListener
 
 /**
  * Main entry point into our app. This app follows the single-activity pattern, and all
@@ -38,6 +50,14 @@ class MainActivity : AppCompatActivity() {
     /** Spoken help for blind users; dialogs shown over this activity use it too. */
     lateinit var voiceGuide: VoiceGuide
         private set
+
+    private lateinit var navController: NavController
+    private var voiceListener: VoiceListener? = null
+
+    private val requestMic =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) setVoiceCommands(true) else voiceGuide.say(getString(R.string.mic_permission_needed))
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,7 +73,7 @@ class MainActivity : AppCompatActivity() {
         val navHostFragment =
             supportFragmentManager.findFragmentById(R.id.fragment_container) as NavHostFragment
         // Titles come from destination labels; every screen except Home gets a back arrow.
-        val navController = navHostFragment.navController
+        navController = navHostFragment.navController
         activityMainBinding.toolbar.setupWithNavController(navController)
 
         voiceGuide = VoiceGuide(this)
@@ -67,6 +87,81 @@ class MainActivity : AppCompatActivity() {
         navController.addOnDestinationChangedListener { _, destination, _ ->
             activityMainBinding.voiceGuideToggle.isVisible = destination.id == R.id.home_fragment
         }
+
+        voiceListener = VoiceListener(this, ::onVoiceText) { voiceGuide.say(it) }
+        showVoiceCommandState()
+        activityMainBinding.voiceCommandToggle.setOnClickListener { toggleVoiceCommands() }
+    }
+
+    /** Switches the always-on microphone on or off; asks for the permission the first time. */
+    fun toggleVoiceCommands() {
+        val listener = voiceListener ?: return
+        if (listener.listening) {
+            setVoiceCommands(false)
+        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            setVoiceCommands(true)
+        } else {
+            requestMic.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun setVoiceCommands(on: Boolean) {
+        val listener = voiceListener ?: return
+        if (on && !listener.available) {
+            voiceGuide.say(getString(R.string.voice_input_unavailable))
+            return
+        }
+        voiceGuide.say(getString(if (on) R.string.voice_commands_on else R.string.voice_commands_off))
+        if (on) listener.start() else listener.stop()
+        showVoiceCommandState()
+    }
+
+    private fun showVoiceCommandState() {
+        val on = voiceListener?.listening == true
+        activityMainBinding.voiceCommandToggle.setImageResource(
+            if (on) R.drawable.ic_mic_24 else R.drawable.ic_mic_off_24
+        )
+        activityMainBinding.voiceCommandToggle.contentDescription =
+            getString(if (on) R.string.voice_commands_desc_on else R.string.voice_commands_desc_off)
+    }
+
+    /** The screen on top gets the command first; what it does not handle moves the app around. */
+    private fun onVoiceText(text: String) {
+        when (val command = VoiceCommandParser.parse(text)) {
+            VoiceCommand.StopListening -> setVoiceCommands(false)
+            VoiceCommand.Unknown -> voiceGuide.say(getString(R.string.voice_command_unknown))
+            else -> {
+                val screen = currentFragment() as? VoiceCommandTarget
+                if (screen?.onVoiceCommand(command) != true && !navigate(command)) {
+                    voiceGuide.say(getString(R.string.voice_command_not_here))
+                }
+            }
+        }
+    }
+
+    private fun currentFragment(): Fragment? =
+        supportFragmentManager.findFragmentById(R.id.fragment_container)
+            ?.childFragmentManager?.primaryNavigationFragment
+
+    private fun navigate(command: VoiceCommand): Boolean {
+        val directions = when (command) {
+            VoiceCommand.Home -> return navController.popBackStack(R.id.home_fragment, false)
+            VoiceCommand.Back, VoiceCommand.Stop -> return navController.popBackStack()
+            VoiceCommand.FullScan -> NavGraphDirections.actionGlobalSettings(ScanMode.FULL)
+            VoiceCommand.LiveScan -> NavGraphDirections.actionGlobalSettings(ScanMode.LIVE)
+            VoiceCommand.History -> NavGraphDirections.actionGlobalHistory()
+            VoiceCommand.Saved -> NavGraphDirections.actionGlobalSaved()
+            is VoiceCommand.Search -> NavGraphDirections.actionGlobalSearch()
+                .setQuery(command.query.ifEmpty { null })
+            VoiceCommand.AddPerson -> NavGraphDirections.actionGlobalAddPerson()
+            VoiceCommand.AddCar -> NavGraphDirections.actionGlobalAddItem(ItemKind.CAR.name)
+            VoiceCommand.AddObject -> NavGraphDirections.actionGlobalAddItem(ItemKind.OBJECT.name)
+            else -> return false
+        }
+        navController.navigate(directions)
+        return true
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -74,7 +169,17 @@ class MainActivity : AppCompatActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
+    override fun onStop() {
+        super.onStop()
+        // The microphone is not held while the app is in the background.
+        if (voiceListener?.listening == true) {
+            voiceListener?.stop()
+            showVoiceCommandState()
+        }
+    }
+
     override fun onDestroy() {
+        voiceListener?.release()
         if (this::voiceGuide.isInitialized) voiceGuide.shutdown()
         super.onDestroy()
     }

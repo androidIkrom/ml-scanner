@@ -7,6 +7,7 @@
     <string name="stop">Stop</string>
     <string name="objects_count">Objects: %d</string>
     <string name="hint_idle">Press Start when you are ready.</string>
+    <string name="hint_running">A scan is already running.</string>
     <string name="hint_full">Turn slowly in a full circle.</string>
     <string name="hint_live">Turn slowly. I will tell you what I find.</string>
     <string name="banner_slow_down">Slow down.</string>
@@ -136,4 +137,14 @@
     <string name="say_name">Say the name</string>
     <string name="say_name_prompt">Say the name.</string>
     <string name="name_heard">Name: %s. Tap Start when ready, or say it again.</string>
+    <string name="voice_commands_desc_on">Voice commands are on. Tap to switch off.</string>
+    <string name="voice_commands_desc_off">Voice commands are off. Tap to switch on.</string>
+    <string name="voice_commands_on">Voice commands on. Say open search, add object, start, stop, or who is this.</string>
+    <string name="voice_commands_off">Voice commands off.</string>
+    <string name="voice_command_unknown">I did not understand that.</string>
+    <string name="voice_command_not_here">That does not work on this screen.</string>
+    <string name="identify_nothing">I do not see anything in the middle.</string>
+    <string name="identify_no_person">I do not see a person in the middle.</string>
+    <string name="identify_is">This is %s.</string>
+    <string name="identify_scan_first">Start a scan first.</string>
 </resources>

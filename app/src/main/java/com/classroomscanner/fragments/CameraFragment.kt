@@ -36,6 +36,8 @@ import com.classroomscanner.core.ModelChoice
 import com.classroomscanner.core.OutlineTracker
 import com.classroomscanner.core.ScanMode
 import com.classroomscanner.core.StickyNames
+import com.classroomscanner.core.VoiceCommand
+import com.classroomscanner.guide.VoiceCommandTarget
 import com.classroomscanner.core.ScanSession
 import com.classroomscanner.core.ScanSettings
 import com.classroomscanner.databinding.FragmentCameraBinding
@@ -62,7 +64,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.runBlocking
 
-class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, HeadingProvider.Listener {
+class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.DetectorListener, HeadingProvider.Listener {
 
     private val args: CameraFragmentArgs by navArgs()
     private val scanLog: ScanLogViewModel by activityViewModels()
@@ -114,6 +116,9 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
     private val stickyNames = StickyNames()
     private var nameFrames = 0
     @Volatile private var resetNames = false
+
+    /** What the camera saw last, for the "who is this" and "what is this" commands. */
+    @Volatile private var lastLook: Look? = null
 
     // Object shapes: segmentation runs on its own thread, one frame at a time.
     private lateinit var outlineExecutor: ExecutorService
@@ -467,10 +472,30 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             floatArrayOf(box.left, box.top, box.right, box.bottom)
         }
         val classLabels = result.detections().map { it.categories()[0].categoryName() }
+        val detections = result.detections()
         requestOutlines(frame, resultBundle.inputImageRotation, evaluated, rawBoxes, classLabels)
         val outlines = evaluated.mapIndexed { i, e ->
             if (e.kept) outlineTracker.lookup(classLabels[i], rawBoxes[i]) else null
         }
+        lastLook = Look(
+            frame,
+            resultBundle.inputImageRotation,
+            evaluated.indices.filter { evaluated[it].kept }.map { i ->
+                val box = detections[i].boundingBox()
+                Seen(
+                    label = evaluated[i].detection.label,
+                    isName = evaluated[i].detection.isName,
+                    color = evaluated[i].detection.color,
+                    rawBox = floatArrayOf(box.left, box.top, box.right, box.bottom),
+                    uprightBox = evaluated[i].uprightBox,
+                    centerX = BoxGeometry.horizontalCenter(
+                        box.left, box.top, box.right, box.bottom,
+                        resultBundle.inputImageWidth, resultBundle.inputImageHeight,
+                        resultBundle.inputImageRotation,
+                    ),
+                )
+            },
+        )
         val countedDetections = evaluated.filter { it.counted }.map { it.detection }
         logInferenceTime(resultBundle.inferenceTime)
 
@@ -527,6 +552,112 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener, Headin
             b.announcement.text = error
             if (scanLog.state.value.entries.lastOrNull()?.text != error) scanLog.add(error)
             if (session == null) b.startStop.isEnabled = false
+        }
+    }
+
+    /** One kept detection of the last frame, with everything the app knows about it. */
+    private class Seen(
+        val label: String,
+        val isName: Boolean,
+        val color: String?,
+        val rawBox: FloatArray,
+        val uprightBox: FloatArray,
+        val centerX: Float,
+    )
+
+    /** The last frame with its kept detections. */
+    private class Look(val frame: Bitmap?, val rotation: Int, val seen: List<Seen>)
+
+    /** Spoken commands for the scanner. Main thread. */
+    override fun onVoiceCommand(command: VoiceCommand): Boolean {
+        val b = _fragmentCameraBinding ?: return false
+        return when (command) {
+            VoiceCommand.Start -> {
+                if (session == null && b.startStop.isEnabled) startScan() else say(getString(R.string.hint_running))
+                true
+            }
+            VoiceCommand.Stop -> {
+                if (session != null) {
+                    stopScan()
+                    true
+                } else {
+                    false
+                }
+            }
+            VoiceCommand.SwitchCamera -> {
+                switchCamera()
+                true
+            }
+            VoiceCommand.ReadText -> {
+                b.viewText.performClick()
+                true
+            }
+            VoiceCommand.Repeat -> {
+                if (!speech.repeatLast()) say(getString(R.string.hint_idle))
+                true
+            }
+            VoiceCommand.IdentifyPerson -> {
+                identify(peopleOnly = true)
+                true
+            }
+            VoiceCommand.IdentifyThing -> {
+                identify(peopleOnly = false)
+                true
+            }
+            else -> false
+        }
+    }
+
+    /**
+     * Answers "who is this" and "what is this" about the thing in the middle of the view: a saved
+     * name when one matches, otherwise the object with its color.
+     */
+    private fun identify(peopleOnly: Boolean) {
+        val look = lastLook
+        val candidates = look?.seen?.filter { !peopleOnly || it.label == PERSON || it.isName }.orEmpty()
+        if (look == null || candidates.isEmpty()) {
+            speech.speakNow(getString(if (peopleOnly) R.string.identify_no_person else R.string.identify_nothing))
+            return
+        }
+        val target = candidates.minByOrNull { kotlin.math.abs(it.centerX - 0.5f) } ?: return
+        if (target.isName) {
+            speech.speakNow(getString(R.string.identify_is, target.label))
+            return
+        }
+        val fallback = target.color?.let { "${'$'}it ${'$'}{target.label}" } ?: target.label
+        val frame = look.frame
+        if (frame == null) {
+            speech.speakNow(getString(R.string.identify_is, fallback))
+            return
+        }
+        try {
+            backgroundExecutor.execute {
+                val name = lookUpName(target, frame, look.rotation)
+                activity?.runOnUiThread {
+                    if (_fragmentCameraBinding != null) {
+                        speech.speakNow(getString(R.string.identify_is, name ?: fallback))
+                    }
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            speech.speakNow(getString(R.string.identify_is, fallback))
+        }
+    }
+
+    /** Detector thread: compares the thing in the middle with saved people and items. */
+    private fun lookUpName(target: Seen, frame: Bitmap, rotation: Int): String? {
+        try {
+            if (target.label == PERSON) {
+                val faces = faceRecognizer?.recognize(frame.upright(rotation)).orEmpty()
+                val (l, t, r, b) = target.uprightBox.toList()
+                return faces.firstOrNull { it.centerX in l..r && it.centerY in t..b }?.match?.name
+            }
+            val crop = frame.cropBox(target.rawBox[0], target.rawBox[1], target.rawBox[2], target.rawBox[3])
+                ?.upright(rotation) ?: return null
+            return itemRecognizer?.match(crop, null)?.name
+        } catch (e: Exception) {
+            Log.w(TAG, "Identify failed", e)
+            return null
         }
     }
 
