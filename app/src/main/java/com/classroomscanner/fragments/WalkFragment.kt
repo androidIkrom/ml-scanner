@@ -48,7 +48,7 @@ import com.classroomscanner.walk.ArCamera
 import com.classroomscanner.walk.ArProblem
 import com.classroomscanner.walk.Compass
 import com.classroomscanner.walk.DepthBytes
-import com.classroomscanner.walk.FrameBytes
+import com.classroomscanner.walk.OffscreenCapture
 import com.classroomscanner.walk.LightColor
 import com.classroomscanner.walk.PlaceStore
 import com.classroomscanner.walk.SignReader
@@ -89,9 +89,10 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private val extrasBusy = AtomicBoolean(false)
     private val background = com.classroomscanner.walk.BackgroundRenderer()
 
-    // Refilled every frame instead of allocating: walking for minutes must not fill memory.
-    private val frameBytes = FrameBytes()
+    // Depth is copied in bulk; the picture comes off the graphics chip.
     private val depthBytes = DepthBytes()
+    private val capture = OffscreenCapture(DETECT_WIDTH, DETECT_HEIGHT)
+    private val signCapture = OffscreenCapture(SIGN_WIDTH, SIGN_HEIGHT)
 
     private var arCamera: ArCamera? = null
     private val busy = AtomicBoolean(false)
@@ -115,6 +116,8 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private var pendingSign: String? = null
 
     private var lastSignFrameAt = 0L
+    private var lastSavedLookAt = 0L
+    private val saidSavedAt = HashMap<String, Long>()
     @Volatile private var lastIds: List<Int> = emptyList()
 
     // Main thread only.
@@ -194,6 +197,10 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
     override fun onDestroyView() {
         closing = true
+        _binding?.glView?.queueEvent {
+            capture.release()
+            signCapture.release()
+        }
         // The GL thread must be stopped before the session is closed, or ARCore crashes natively.
         _binding?.glView?.onPause()
         arCamera?.pause()
@@ -252,6 +259,8 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         background.create()
+        capture.create()
+        signCapture.create()
         arCamera?.useTexture(background.textureId)
     }
 
@@ -269,7 +278,14 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         val now = SystemClock.uptimeMillis()
         if (now - lastAnalysisAt < ANALYSIS_GAP_MS || !busy.compareAndSet(false, true)) return
         lastAnalysisAt = now
-        val walkFrame = frame.toWalkFrame(frameBytes, depthBytes)
+        val image = capture.capture { background.draw(frame) }
+        val signImage = if (now - lastSignFrameAt >= SIGN_GAP_MS) {
+            lastSignFrameAt = now
+            signCapture.capture { background.draw(frame) }
+        } else {
+            null
+        }
+        val walkFrame = if (image == null) null else frame.toWalkFrame(image, signImage, depthBytes)
         if (walkFrame == null) {
             busy.set(false)
             return
@@ -294,21 +310,15 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     @SuppressLint("UnsafeOptInUsageError")
     private fun analyze(frame: WalkFrame) {
         val detector = detector ?: return
-        // The picture is made here, on the worker thread, not on the GL thread that draws.
-        val image = frame.bytes.toBitmap(DETECT_WIDTH) ?: return
-        val now = SystemClock.uptimeMillis()
-        val signImage = if (now - lastSignFrameAt >= SIGN_GAP_MS) {
-            lastSignFrameAt = now
-            frame.bytes.toBitmap(SIGN_WIDTH)
-        } else {
-            null
-        }
+        val image = frame.image
+        val signImage = frame.signImage
         val result = detector.detectImage(image)?.results?.firstOrNull() ?: return
         val detections = result.detections()
         val horizon = WalkGeometry.horizonY(frame.pitchDeg, frame.focalPx, image.height)
         frameCount++
 
         val hazards = ArrayList<Hazard>()
+        val savedCandidates = ArrayList<Triple<String, FloatArray, Float?>>()
         var nearestAhead: Float? = null
         var light: TrafficLightColor? = null
         val boxes = ArrayList<FloatArray>()
@@ -323,12 +333,12 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
             if (label == TRAFFIC_LIGHT) {
                 light = LightColor.classify(image, box.left.toInt(), box.top.toInt(), box.right.toInt(), box.bottom.toInt())
             }
-            if (!HazardPolicy.isHazard(label)) continue
-            val metres = frame.depth?.metres(
-                box.left / image.width, box.top / image.height,
-                box.right / image.width, box.bottom / image.height,
-            ) ?: WalkGeometry.distanceFromBottom(box.bottom, horizon, frame.focalPx, CAMERA_HEIGHT_M)
-            ?: continue
+            if (!HazardPolicy.isHazard(label)) {
+                // Saved things are worth saying even when they are not in the way.
+                if (label != PERSON) savedCandidates += Triple(label, boxOf(box), metresOf(frame, image, box, horizon))
+                continue
+            }
+            val metres = metresOf(frame, image, box, horizon) ?: continue
             val zone = WalkZone.of((box.left + box.right) / 2f / image.width)
             hazards += Hazard(label, metres, zone)
             boxes += floatArrayOf(box.left, box.top, box.right, box.bottom)
@@ -363,18 +373,64 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         if (lightChanged) lastLight = light
         val sign = pendingSign
         pendingSign = null
+        val savedSeen = sawSaved(image, savedCandidates, stepLength)
 
         onMain {
             when {
                 alert != null -> say(WalkPhrases.hazard(alert, stepLength))
                 groundChanged -> say(WalkPhrases.ground(lastGround ?: return@onMain))
                 lightChanged -> say(WalkPhrases.trafficLight(light ?: return@onMain))
+                savedSeen != null -> say(savedSeen)
                 sign != null -> say(getString(R.string.walk_sign, sign))
             }
             beeper.setInterval(WalkAlerts.beepIntervalMs(nearestAhead))
             if (nearestAhead != null && nearestAhead!! < BUZZ_M) beeper.buzz()
             speakBeacon()
         }
+    }
+
+    private fun boxOf(box: android.graphics.RectF) = floatArrayOf(box.left, box.top, box.right, box.bottom)
+
+    /** Metres from the depth image, or from the ground geometry when depth is missing. */
+    private fun metresOf(
+        frame: WalkFrame,
+        image: Bitmap,
+        box: android.graphics.RectF,
+        horizon: Float,
+    ): Float? = frame.depth?.metres(
+        box.left / image.width, box.top / image.height,
+        box.right / image.width, box.bottom / image.height,
+    ) ?: WalkGeometry.distanceFromBottom(box.bottom, horizon, frame.focalPx, CAMERA_HEIGHT_M)
+
+    /**
+     * Looks for saved people and things among everything in view and says the first sighting of
+     * each: "my bag on your left, four steps". Analysis thread.
+     */
+    private fun sawSaved(
+        image: Bitmap,
+        candidates: List<Triple<String, FloatArray, Float?>>,
+        stepLength: Float?,
+    ): String? {
+        val recognizer = itemRecognizer ?: return null
+        if (candidates.isEmpty()) return null
+        val now = SystemClock.uptimeMillis()
+        if (now - lastSavedLookAt < SAVED_LOOK_MS) return null
+        lastSavedLookAt = now
+        val pick = candidates
+            .filter { it.first in recognizer.labels || recognizer.labels.isNotEmpty() }
+            .minByOrNull { it.third ?: Float.MAX_VALUE } ?: return null
+        val (_, box, metres) = pick
+        val crop = image.cropBox(box[0], box[1], box[2], box[3]) ?: return null
+        val match = try {
+            recognizer.match(crop, null)
+        } catch (e: Exception) {
+            Log.w(TAG, "Saved lookup failed", e)
+            null
+        } ?: return null
+        if (now - (saidSavedAt[match.name] ?: 0L) < SAVED_REPEAT_MS) return null
+        saidSavedAt[match.name] = now
+        val zone = WalkZone.of((box[0] + box[2]) / 2f / image.width)
+        return WalkPhrases.hazard(Hazard(match.name, metres ?: 2f, zone), stepLength)
     }
 
     /** Puts the saved names found so far on this frame's hazards. Analysis thread. */
@@ -606,6 +662,12 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
         /** Letters need pixels: the sign frame is bigger than the one the detector sees. */
         const val SIGN_WIDTH = 960
+        const val SIGN_HEIGHT = 720
+        const val DETECT_HEIGHT = 240
+
+        /** How often the saved things are looked for, and how long before the same one is said again. */
+        const val SAVED_LOOK_MS = 900L
+        const val SAVED_REPEAT_MS = 30_000L
 
         /** What the detector sees; bigger than this buys nothing and costs conversion time. */
         const val DETECT_WIDTH = 320

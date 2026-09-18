@@ -49,9 +49,12 @@ class DepthMap(val width: Int, val height: Int, private val millimetres: ShortAr
     }
 }
 
-/** Everything walk mode takes from one AR frame, with the picture still in raw bytes. */
+/** Everything walk mode takes from one AR frame. */
 class WalkFrame(
-    val bytes: FrameBytes,
+    /** The view ahead, already scaled down by the graphics chip. */
+    val image: android.graphics.Bitmap,
+    /** A bigger picture for reading signs, only on the frames where one was wanted. */
+    val signImage: android.graphics.Bitmap?,
     val depth: DepthMap?,
     /** Ground class under the walker, such as sidewalk or road; null without scene semantics. */
     val ground: String?,
@@ -64,16 +67,20 @@ class WalkFrame(
  * Reads one AR frame on the GL thread, doing only bulk copies, and hands the rest to the caller's
  * worker thread. Returns null while ARCore has nothing ready.
  */
-fun Frame.toWalkFrame(bytes: FrameBytes, depth: DepthBytes): WalkFrame? {
-    if (!bytes.copyFrom(this)) return null
+fun Frame.toWalkFrame(
+    image: android.graphics.Bitmap,
+    signImage: android.graphics.Bitmap?,
+    depth: DepthBytes,
+): WalkFrame? {
     val hasDepth = depth.copyFrom(this)
     val focal = camera.imageIntrinsics.focalLength.getOrElse(0) { 0f }
     return WalkFrame(
-        bytes = bytes,
+        image = image,
+        signImage = signImage,
         depth = if (hasDepth) depth.map() else null,
         ground = groundLabel(),
         pitchDeg = pitchDeg(),
-        focalPx = if (focal > 0f) focal else bytes.width.toFloat(),
+        focalPx = if (focal > 0f) focal else image.width.toFloat(),
     )
 }
 
