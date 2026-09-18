@@ -1,5 +1,6 @@
 package com.classroomscanner.core
 
+import kotlin.math.atan
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -87,11 +88,28 @@ object WalkPhrases {
 
     fun ground(label: String): String = "${label.replaceFirstChar { it.uppercase() }} under you."
 
+    /** What to say about the floor ahead, or null when it is flat. Never tells the user to go. */
+    fun ground(finding: GroundFinding, stepLength: Float?): String? {
+        val what = when {
+            finding.dropM != null && (finding.stepUpM == null || finding.dropM < finding.stepUpM) ->
+                "Step down ahead" to finding.dropM
+            finding.stepUpM != null -> (if (finding.stairs) "Stairs up ahead" else "Step up ahead") to finding.stepUpM
+            else -> return null
+        }
+        val far = if (stepLength != null) {
+            val steps = WalkGeometry.steps(what.second, stepLength)
+            "${number(steps)} step${if (steps == 1) "" else "s"}"
+        } else {
+            "${what.second.roundToInt()} metres"
+        }
+        return "${what.first}, $far."
+    }
+
     fun trafficLight(color: TrafficLightColor): String =
         "${color.name.lowercase().replaceFirstChar { it.uppercase() }} light seen."
 
     /** Small counts read better as words. */
-    private fun number(n: Int): String = when (n) {
+    internal fun number(n: Int): String = when (n) {
         1 -> "one"
         2 -> "two"
         3 -> "three"
@@ -233,6 +251,76 @@ class HazardConfirmer(private val minHits: Int = 3, private val window: Int = 5)
     fun clear() {
         seen.clear()
         latest.clear()
+    }
+}
+
+/** What the floor ahead does: a rise, a fall, or several rises in a row. */
+data class GroundFinding(val stepUpM: Float?, val dropM: Float?, val stairs: Boolean = false)
+
+/**
+ * Stairs, kerbs and drop-offs, from the depth image alone. For every sample the height above the
+ * floor is worked out from how far the ray travelled and how steeply it points down: about zero is
+ * floor, clearly higher is a step up, clearly lower is a step down. No model can do this on a
+ * phone, but geometry can.
+ */
+object GroundProfile {
+    /** Heights within this of the floor are just floor. */
+    private const val FLAT_M = 0.09f
+
+    /** Below this a rise is a kerb rather than a wall, and a fall is a step rather than a cliff. */
+    private const val MAX_STEP_M = 0.8f
+
+    /** How far ahead the floor is worth reading. */
+    private const val MAX_AHEAD_M = 4f
+    private const val MIN_AHEAD_M = 0.6f
+
+    /** A band must hold this many samples before it counts, so noise stays quiet. */
+    private const val MIN_SAMPLES = 3
+
+    fun analyze(
+        depthsM: FloatArray,
+        width: Int,
+        height: Int,
+        focalPx: Float,
+        horizonY: Float,
+        cameraHeightM: Float,
+    ): GroundFinding {
+        val from = width / 3
+        val to = width * 2 / 3
+        // Distance ahead -> height above the floor, for the strip the walker is heading into.
+        val rises = ArrayList<Float>()
+        val falls = ArrayList<Float>()
+        for (row in 0 until height) {
+            val alpha = atan((row - horizonY) / focalPx)
+            // Rays at or above the horizon never meet the floor.
+            if (alpha <= 0.01f) continue
+            var samples = 0
+            var risingHits = 0
+            var fallingHits = 0
+            var forwardSum = 0f
+            for (col in from until to) {
+                val distance = depthsM[row * width + col]
+                if (distance <= 0f) continue
+                val heightAboveFloor = cameraHeightM - distance * sin(alpha)
+                val forward = distance * cos(alpha)
+                if (forward < MIN_AHEAD_M || forward > MAX_AHEAD_M) continue
+                samples++
+                forwardSum += forward
+                when {
+                    heightAboveFloor > FLAT_M && heightAboveFloor <= MAX_STEP_M -> risingHits++
+                    heightAboveFloor < -FLAT_M && heightAboveFloor >= -MAX_STEP_M -> fallingHits++
+                }
+            }
+            if (samples < MIN_SAMPLES) continue
+            val forward = forwardSum / samples
+            if (risingHits >= samples * 0.6f) rises += forward
+            if (fallingHits >= samples * 0.6f) falls += forward
+        }
+        val stepUp = rises.minOrNull()
+        val drop = falls.minOrNull()
+        // Several rising bands, a hand's width apart, are a flight of stairs rather than one kerb.
+        val stairs = rises.distinctBy { (it * 3).toInt() }.size >= 3
+        return GroundFinding(stepUp, drop, stairs)
     }
 }
 

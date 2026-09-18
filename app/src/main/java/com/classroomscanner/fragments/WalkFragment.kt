@@ -25,6 +25,7 @@ import com.classroomscanner.R
 import com.classroomscanner.core.Beacon
 import com.classroomscanner.core.Hazard
 import com.classroomscanner.core.HazardConfirmer
+import com.classroomscanner.core.GroundProfile
 import com.classroomscanner.core.HazardPolicy
 import com.classroomscanner.core.DepthObstacles
 import com.classroomscanner.core.StickyNames
@@ -111,6 +112,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private val stickyNames = StickyNames()
     private var frameCount = 0
     private var lastGround: String? = null
+    private var lastFloorSaid: String? = null
     private var lastLight: TrafficLightColor? = null
     private var lastSign: String? = null
     private var pendingSign: String? = null
@@ -372,9 +374,17 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         val sign = pendingSign
         pendingSign = null
         val savedSeen = sawSaved(signImage ?: image, image.width, savedCandidates, stepLength)
+        // Steps, kerbs and drop-offs come from the shape of the floor, not from a class.
+        val floor = frame.depth?.let {
+            GroundProfile.analyze(it.metresGrid, it.width, it.height, frame.focalPx * it.width / image.width, horizon * it.height / image.height, CAMERA_HEIGHT_M)
+        }
+        val floorSaid = floor?.let { WalkPhrases.ground(it, stepLength) }
+        val floorChanged = floorSaid != null && floorSaid != lastFloorSaid
+        lastFloorSaid = floorSaid
 
         onMain {
             when {
+                floorChanged -> say(floorSaid ?: return@onMain)
                 alert != null -> say(WalkPhrases.hazard(alert, stepLength))
                 groundChanged -> say(WalkPhrases.ground(lastGround ?: return@onMain))
                 lightChanged -> say(WalkPhrases.trafficLight(light ?: return@onMain))
