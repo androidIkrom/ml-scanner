@@ -243,7 +243,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     /** Null when this delegate cannot run the model. Analysis thread. */
     private fun openDetector(context: Context, delegate: Int): ObjectDetectorHelper? = try {
         ObjectDetectorHelper(
-            threshold = MIN_SCORE,
+            threshold = LOOK_SCORE,
             currentDelegate = delegate,
             currentModel = ObjectDetectorHelper.MODEL_EFFICIENTDETV0,
             runningMode = RunningMode.IMAGE,
@@ -328,16 +328,14 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         for (detection in detections) {
             val category = detection.categories()[0]
             val label = category.categoryName()
-            if (category.score() < MIN_SCORE) continue
+            if (category.score() < LOOK_SCORE) continue
             val box = detection.boundingBox()
             if (label == TRAFFIC_LIGHT) {
                 light = LightColor.classify(image, box.left.toInt(), box.top.toInt(), box.right.toInt(), box.bottom.toInt())
             }
-            if (!HazardPolicy.isHazard(label)) {
-                // Saved things are worth saying even when they are not in the way.
-                if (label != PERSON) savedCandidates += Triple(label, boxOf(box), metresOf(frame, image, box, horizon))
-                continue
-            }
+            // Saved things are worth saying even when they are not in the way.
+            if (label != PERSON) savedCandidates += Triple(label, boxOf(box), metresOf(frame, image, box, horizon))
+            if (!HazardPolicy.isHazard(label) || category.score() < MIN_SCORE) continue
             val metres = metresOf(frame, image, box, horizon) ?: continue
             val zone = WalkZone.of((box.left + box.right) / 2f / image.width)
             hazards += Hazard(label, metres, zone)
@@ -373,7 +371,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         if (lightChanged) lastLight = light
         val sign = pendingSign
         pendingSign = null
-        val savedSeen = sawSaved(image, savedCandidates, stepLength)
+        val savedSeen = sawSaved(signImage ?: image, image.width, savedCandidates, stepLength)
 
         onMain {
             when {
@@ -408,6 +406,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
      */
     private fun sawSaved(
         image: Bitmap,
+        boxWidth: Int,
         candidates: List<Triple<String, FloatArray, Float?>>,
         stepLength: Float?,
     ): String? {
@@ -416,21 +415,27 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         val now = SystemClock.uptimeMillis()
         if (now - lastSavedLookAt < SAVED_LOOK_MS) return null
         lastSavedLookAt = now
-        val pick = candidates
-            .filter { it.first in recognizer.labels || recognizer.labels.isNotEmpty() }
-            .minByOrNull { it.third ?: Float.MAX_VALUE } ?: return null
-        val (_, box, metres) = pick
-        val crop = image.cropBox(box[0], box[1], box[2], box[3]) ?: return null
-        val match = try {
-            recognizer.match(crop, null)
-        } catch (e: Exception) {
-            Log.w(TAG, "Saved lookup failed", e)
-            null
-        } ?: return null
-        if (now - (saidSavedAt[match.name] ?: 0L) < SAVED_REPEAT_MS) return null
-        saidSavedAt[match.name] = now
-        val zone = WalkZone.of((box[0] + box[2]) / 2f / image.width)
-        return WalkPhrases.hazard(Hazard(match.name, metres ?: 2f, zone), stepLength)
+        // Boxes come from the detector's small picture; the crop is taken from the biggest picture
+        // this frame has, because a saved thing is recognized by its look, and detail decides.
+        val scale = image.width.toFloat() / boxWidth
+        val picks = candidates
+            .sortedWith(compareByDescending { (it.second[2] - it.second[0]) * (it.second[3] - it.second[1]) })
+            .take(SAVED_CROPS)
+        for ((_, box, metres) in picks) {
+            val crop = image.cropBox(box[0] * scale, box[1] * scale, box[2] * scale, box[3] * scale)
+                ?: continue
+            val match = try {
+                recognizer.match(crop, null)
+            } catch (e: Exception) {
+                Log.w(TAG, "Saved lookup failed", e)
+                null
+            } ?: continue
+            if (now - (saidSavedAt[match.name] ?: 0L) < SAVED_REPEAT_MS) continue
+            saidSavedAt[match.name] = now
+            val zone = WalkZone.of((box[0] + box[2]) / 2f / boxWidth)
+            return WalkPhrases.hazard(Hazard(match.name, metres ?: 2f, zone), stepLength)
+        }
+        return null
     }
 
     /** Puts the saved names found so far on this frame's hazards. Analysis thread. */
@@ -655,6 +660,12 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         const val TAG = "ClassroomScanner"
         const val MIN_SCORE = 0.7f
 
+        /** Weak guesses are still worth comparing with saved things; the embedding decides. */
+        const val LOOK_SCORE = 0.35f
+
+        /** How many things are compared with the saved ones in one look. */
+        const val SAVED_CROPS = 3
+
         /** A detected thing and a depth reading this close together are the same object. */
         const val SAME_THING_M = 1f
         const val ANALYSIS_GAP_MS = 150L
@@ -663,14 +674,14 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         /** Letters need pixels: the sign frame is bigger than the one the detector sees. */
         const val SIGN_WIDTH = 960
         const val SIGN_HEIGHT = 720
-        const val DETECT_HEIGHT = 240
+        const val DETECT_HEIGHT = 360
 
         /** How often the saved things are looked for, and how long before the same one is said again. */
         const val SAVED_LOOK_MS = 900L
         const val SAVED_REPEAT_MS = 30_000L
 
         /** What the detector sees; bigger than this buys nothing and costs conversion time. */
-        const val DETECT_WIDTH = 320
+        const val DETECT_WIDTH = 480
         const val NAME_EVERY = 4
         const val BEACON_REPEAT_MS = 20_000L
         const val LOCATION_GAP_MS = 2_000L
