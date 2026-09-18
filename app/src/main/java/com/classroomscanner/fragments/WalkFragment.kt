@@ -90,6 +90,9 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
     private var arCamera: ArCamera? = null
     private val busy = AtomicBoolean(false)
+
+    /** Set before the AR session is closed, so the GL thread stops touching it. */
+    @Volatile private var closing = false
     private var lastAnalysisAt = 0L
 
     // Analysis thread only.
@@ -187,6 +190,10 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     }
 
     override fun onDestroyView() {
+        closing = true
+        // The GL thread must be stopped before the session is closed, or ARCore crashes natively.
+        _binding?.glView?.onPause()
+        arCamera?.pause()
         beeper.release()
         speech.shutdownWhenIdle()
         stopLocation()
@@ -253,6 +260,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+        if (closing) return
         val frame = arCamera?.update() ?: return
         background.draw(frame)
         val now = SystemClock.uptimeMillis()
