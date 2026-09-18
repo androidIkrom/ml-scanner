@@ -534,7 +534,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
     private companion object {
         const val TAG = "ClassroomScanner"
-        const val MIN_SCORE = 0.55f
+        const val MIN_SCORE = 0.7f
 
         /** A detected thing and a depth reading this close together are the same object. */
         const val SAME_THING_M = 1f
