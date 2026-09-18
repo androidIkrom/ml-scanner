@@ -75,6 +75,29 @@ class VoiceCommandParserTest {
     }
 
     @Test
+    fun theSameCommandInManyShapes() {
+        listOf("full scan", "open full scan", "full scan open", "start full scan", "scan the room")
+            .forEach { assertEquals(it, VoiceCommand.FullScan, VoiceCommandParser.parse(it)) }
+        listOf("live scan", "open live scan", "live scan open", "start live scan")
+            .forEach { assertEquals(it, VoiceCommand.LiveScan, VoiceCommandParser.parse(it)) }
+        listOf("saved", "open saved", "saved open", "show me saved")
+            .forEach { assertEquals(it, VoiceCommand.Saved, VoiceCommandParser.parse(it)) }
+        listOf("walk", "open walk", "walk mode", "start walking")
+            .forEach { assertEquals(it, VoiceCommand.Walk, VoiceCommandParser.parse(it)) }
+        listOf("history", "open history", "history open")
+            .forEach { assertEquals(it, VoiceCommand.History, VoiceCommandParser.parse(it)) }
+    }
+
+    @Test
+    fun learnerModeInManyShapes() {
+        listOf("learner mode on", "learning mode on", "turn on learning mode", "learning on", "start learner mode")
+            .forEach { assertEquals(it, VoiceCommand.Learner(true), VoiceCommandParser.parse(it)) }
+        listOf("learner mode off", "learning mode off", "turn off learning mode", "learning off",
+               "stop learner mode", "disable learning mode")
+            .forEach { assertEquals(it, VoiceCommand.Learner(false), VoiceCommandParser.parse(it)) }
+    }
+
+    @Test
     fun searchWithoutQueryAndNoiseAreUnknown() {
         assertEquals(VoiceCommand.Unknown, VoiceCommandParser.parse("find"))
         assertEquals(VoiceCommand.Unknown, VoiceCommandParser.parse("hello there"))

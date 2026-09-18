@@ -50,6 +50,10 @@ class SpeechInput(context: Context) {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
             .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            // Waiting quietly is normal: the user may press the button and speak seconds later.
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, MIN_LISTEN_MS)
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, SILENCE_MS)
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, SILENCE_MS)
         recognizer.startListening(intent)
     }
 
@@ -64,6 +68,8 @@ class SpeechInput(context: Context) {
     }
 
     companion object {
+        private const val MIN_LISTEN_MS = 8_000
+        private const val SILENCE_MS = 2_000
         private const val NOT_CAUGHT = "I didn't catch that. Try again."
 
         fun isAvailable(context: Context): Boolean =

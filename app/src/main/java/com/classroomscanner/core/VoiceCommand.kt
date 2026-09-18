@@ -51,6 +51,10 @@ object VoiceCommandParser {
     private val goTo = Regex("^(take me to|guide me to|go to|walk me to)\\s+(.+)$")
     private val search = Regex("^(search for|search|find|where is|where are|wheres|look for|locate)\\s+(.+)$")
 
+    /** Words that switch something on; anything about stopping or leaving switches it off. */
+    private fun isOn(words: Set<String>): Boolean =
+        "off" !in words && "stop" !in words && "disable" !in words && "no" !in words
+
     fun parse(text: String): VoiceCommand {
         val t = text.lowercase()
             .replace("'", "")
@@ -69,9 +73,8 @@ object VoiceCommandParser {
         savePlace.find(t)?.let { return VoiceCommand.SavePlace(it.groupValues[2].trim()) }
         goTo.find(t)?.let { return VoiceCommand.GoTo(it.groupValues[2].trim()) }
         if ("walk" in words || "walking" in words) return VoiceCommand.Walk
-        if (t.contains("learner")) {
-            return VoiceCommand.Learner(!t.contains(" off") && !t.contains("stop"))
-        }
+        // "learner mode", "learning mode", with or without "turn", in either order.
+        if ("learner" in words || "learning" in words) return VoiceCommand.Learner(isOn(words))
         val aboutHere = t.contains("this screen") || Regex("\\bhere\\b").containsMatchIn(t)
         if (t.startsWith("who is") || t.startsWith("whos")) return VoiceCommand.IdentifyPerson
         if ((t.startsWith("what is") || t.startsWith("whats")) && !aboutHere) {
@@ -87,7 +90,9 @@ object VoiceCommandParser {
             return VoiceCommand.Help("")
         }
         if (t == "help" || t.startsWith("help me") || aboutHere) return VoiceCommand.Help("")
-        if ("search" in words && ("open" in words || "start" in words) && !t.contains("search for")) {
+        if ("search" in words && ("open" in words || "start" in words || "show" in words) &&
+            !t.contains("search for")
+        ) {
             return VoiceCommand.Search("")
         }
         search.find(t)?.let { return VoiceCommand.Search(it.groupValues[2]) }

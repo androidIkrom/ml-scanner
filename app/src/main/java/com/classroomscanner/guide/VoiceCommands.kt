@@ -23,6 +23,7 @@ class VoiceListener(
     private val appContext = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
     private var input: SpeechInput? = null
+    private var errorsInARow = 0
 
     var listening: Boolean = false
         private set
@@ -57,6 +58,7 @@ class VoiceListener(
         speech.listen(
             onListening = {},
             onResult = { text ->
+                errorsInARow = 0
                 if (listening) {
                     onText(text)
                     again(AFTER_COMMAND_MS)
@@ -67,9 +69,15 @@ class VoiceListener(
                 if (message.contains("Microphone")) {
                     onProblem(message)
                     stop()
-                } else {
-                    again(AFTER_ERROR_MS)
+                    return@listen
                 }
+                // A recognizer that keeps failing is stuck; a fresh one always works again.
+                if (++errorsInARow >= MAX_ERRORS) {
+                    errorsInARow = 0
+                    input?.destroy()
+                    input = null
+                }
+                again(AFTER_ERROR_MS)
             },
         )
     }
@@ -79,6 +87,9 @@ class VoiceListener(
 
         /** Long enough for a short answer to be spoken before the microphone opens again. */
         const val AFTER_COMMAND_MS = 2_500L
-        const val AFTER_ERROR_MS = 600L
+        const val AFTER_ERROR_MS = 700L
+
+        /** After this many failed turns the recognizer itself is replaced. */
+        const val MAX_ERRORS = 3
     }
 }
