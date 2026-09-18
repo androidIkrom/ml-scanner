@@ -176,4 +176,5 @@
     <string name="walk_no_fix">Waiting for GPS. Go outside and try again.</string>
     <string name="walk_no_location">Location access is needed to guide you to a place.</string>
     <string name="identify_maybe">This looks like %s.</string>
+    <string name="code_found">Code: %s.</string>
 </resources>

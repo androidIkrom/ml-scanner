@@ -55,6 +55,7 @@ import com.classroomscanner.sensor.CameraFov
 import com.classroomscanner.sensor.HeadingProvider
 import com.classroomscanner.settings.SettingsStore
 import com.classroomscanner.speech.SpeechAnnouncer
+import com.classroomscanner.vision.CodeReader
 import com.classroomscanner.vision.SceneClassifier
 import com.google.android.material.color.MaterialColors
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -115,6 +116,7 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
 
     /** Loaded the first time someone asks what something is. Detector thread only. */
     @Volatile private var classifier: SceneClassifier? = null
+    @Volatile private var codes: CodeReader? = null
 
     // Name decisions for tracked objects; MediaPipe result thread only.
     private val stickyNames = StickyNames()
@@ -170,10 +172,13 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
         outlineExecutor.shutdown()
         val guesser = classifier
         classifier = null
+        val reader = codes
+        codes = null
         backgroundExecutor.execute {
             recognizer?.close()
             items?.close()
             guesser?.close()
+            reader?.close()
         }
         backgroundExecutor.shutdown()
         if (!backgroundExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
@@ -668,12 +673,15 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
         }
         try {
             backgroundExecutor.execute {
+                var code: String? = null
                 val guess = try {
                     val middle = frame.cropBox(
                         frame.width * 0.25f, frame.height * 0.25f,
                         frame.width * 0.75f, frame.height * 0.75f,
                     )?.upright(look.rotation)
-                    middle?.let { sceneClassifier()?.name(it) }
+                    // A QR code or a barcode says more than any guess about the picture.
+                    code = middle?.let { codeReader().read(it) }
+                    if (code == null) middle?.let { sceneClassifier()?.name(it) } else null
                 } catch (e: Exception) {
                     Log.w(TAG, "Guessing failed", e)
                     null
@@ -681,10 +689,10 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
                 activity?.runOnUiThread {
                     if (_fragmentCameraBinding == null) return@runOnUiThread
                     speech.speakNow(
-                        if (guess == null) {
-                            getString(R.string.identify_nothing)
-                        } else {
-                            getString(R.string.identify_maybe, guess)
+                        when {
+                            code != null -> getString(R.string.code_found, code)
+                            guess != null -> getString(R.string.identify_maybe, guess)
+                            else -> getString(R.string.identify_nothing)
                         }
                     )
                 }
@@ -693,6 +701,9 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
             speech.speakNow(getString(R.string.identify_nothing))
         }
     }
+
+    /** Detector thread: the code reader is kept once it has been made. */
+    private fun codeReader(): CodeReader = codes ?: CodeReader().also { codes = it }
 
     /** Detector thread: the classifier is only loaded when it is first needed. */
     private fun sceneClassifier(): SceneClassifier? {

@@ -61,5 +61,12 @@ task downloadModelFile6(type: Download) {
     overwrite false
 }
 
-preBuild.dependsOn downloadModelFile5, downloadModelFile6
+// EfficientDet-Lite0, 8-bit: a quarter of the size and quicker on the processor, for walking.
+task downloadModelFile7(type: Download) {
+    src 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite'
+    dest project.ext.ASSET_DIR + '/efficientdet-lite0-int8.tflite'
+    overwrite false
+}
+
+preBuild.dependsOn downloadModelFile5, downloadModelFile6, downloadModelFile7
 preBuild.dependsOn downloadModelFile0, downloadModelFile1, downloadModelFile2, downloadModelFile3, downloadModelFile4

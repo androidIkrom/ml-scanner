@@ -45,6 +45,7 @@ import com.classroomscanner.items.cropBox
 import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.search.Beeper
 import com.classroomscanner.speech.SpeechAnnouncer
+import com.classroomscanner.vision.CodeReader
 import com.classroomscanner.vision.SceneClassifier
 import com.classroomscanner.walk.ArCamera
 import com.classroomscanner.walk.ArProblem
@@ -108,6 +109,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private var faceRecognizer: FaceRecognizer? = null
     private var itemRecognizer: ItemRecognizer? = null
     private var signReader: SignReader? = null
+    private var codeReader: CodeReader? = null
     private var classifier: SceneClassifier? = null
     private val alerts = WalkAlerts()
     private val confirmer = HazardConfirmer()
@@ -118,6 +120,8 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private var lastLight: TrafficLightColor? = null
     private var lastSign: String? = null
     private var pendingSign: String? = null
+    private var pendingCode: String? = null
+    private var lastCode: String? = null
 
     private var lastSignFrameAt = 0L
     private var lastSavedLookAt = 0L
@@ -220,6 +224,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         analysisExecutor.execute { detector?.clearObjectDetector() }
         extrasExecutor.execute {
             classifier?.close()
+            codeReader?.close()
             signReader?.close()
             faceRecognizer?.close()
             itemRecognizer?.close()
@@ -237,6 +242,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
             detector = openDetector(context, ObjectDetectorHelper.DELEGATE_GPU)
                 ?: openDetector(context, ObjectDetectorHelper.DELEGATE_CPU)
             signReader = SignReader()
+            codeReader = CodeReader()
             classifier = try {
                 SceneClassifier(context)
             } catch (e: Exception) {
@@ -258,7 +264,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         ObjectDetectorHelper(
             threshold = LOOK_SCORE,
             currentDelegate = delegate,
-            currentModel = ObjectDetectorHelper.MODEL_EFFICIENTDETV0,
+            currentModel = ObjectDetectorHelper.MODEL_EFFICIENTDETV0_INT8,
             runningMode = RunningMode.IMAGE,
             context = context,
         ).takeIf { !it.isClosed() }
@@ -385,6 +391,8 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         if (lightChanged) lastLight = light
         val sign = pendingSign
         pendingSign = null
+        val code = pendingCode
+        pendingCode = null
         val savedSeen = sawSaved(signImage ?: image, image.width, savedCandidates, stepLength)
         // Steps, kerbs and drop-offs come from the shape of the floor, not from a class.
         val floor = frame.depth?.let {
@@ -402,6 +410,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
                 lightChanged -> say(WalkPhrases.trafficLight(light ?: return@onMain))
                 savedSeen != null -> say(savedSeen)
                 sign != null -> say(getString(R.string.walk_sign, sign))
+                code != null -> say(getString(R.string.code_found, code))
             }
             beeper.setInterval(WalkAlerts.beepIntervalMs(nearestAhead))
             if (nearestAhead != null && nearestAhead!! < BUZZ_M) beeper.buzz()
@@ -522,7 +531,15 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
                         val name = lookUpName(image, boxes[nearest], labels[nearest])
                         stickyNames.vote(ids[nearest], name)
                     }
-                    if (signImage != null) readSign(signImage)?.let { pendingSign = it }
+                    if (signImage != null) {
+                        // A sign may be words or a code; both are worth saying, words first.
+                        val words = readSign(signImage)
+                        if (words != null) {
+                            pendingSign = words
+                        } else {
+                            readCode(signImage)?.let { pendingCode = it }
+                        }
+                    }
                 } catch (e: Exception) {
                     Log.w(TAG, "Walk extras failed", e)
                 } finally {
@@ -545,6 +562,15 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     } catch (e: Exception) {
         Log.w(TAG, "Walk naming failed", e)
         null
+    }
+
+    /** Reads a QR or product code in the frame; the same code is not read twice. Extras thread. */
+    private fun readCode(image: Bitmap): String? {
+        val reader = codeReader ?: return null
+        val code = reader.read(image) ?: return null
+        if (code == lastCode) return null
+        lastCode = code
+        return code
     }
 
     /** Reads the middle of a frame; the same sign is not read twice. Extras thread. */
