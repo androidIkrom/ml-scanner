@@ -13,10 +13,12 @@ private const val TAG = "ClassroomScanner"
 /** Metric depth of one frame, copied out so it can be used after the frame is gone. */
 class DepthMap(val width: Int, val height: Int, private val millimetres: ShortArray) {
 
-    /** The whole frame in metres; 0 where the phone could not measure. */
-    fun metresGrid(): FloatArray = FloatArray(width * height) { i ->
-        val mm = millimetres[i].toInt() and 0x1FFF
-        if (mm in MIN_MM..MAX_MM) mm / 1000f else 0f
+    /** The whole frame in metres; 0 where the phone could not measure. Built once, then reused. */
+    val metresGrid: FloatArray by lazy {
+        FloatArray(width * height) { i ->
+            val mm = millimetres[i].toInt() and 0x1FFF
+            if (mm in MIN_MM..MAX_MM) mm / 1000f else 0f
+        }
     }
 
     /**
@@ -31,8 +33,8 @@ class DepthMap(val width: Int, val height: Int, private val millimetres: ShortAr
                 val fy = top + (bottom - top) * (0.5f + 0.5f * (j + 0.5f) / SAMPLES)
                 val x = (fx * width).toInt().coerceIn(0, width - 1)
                 val y = (fy * height).toInt().coerceIn(0, height - 1)
-                val mm = millimetres[y * width + x].toInt() and 0x1FFF
-                if (mm in MIN_MM..MAX_MM) values += mm / 1000f
+                val metres = metresGrid[y * width + x]
+                if (metres > 0f) values += metres
             }
         }
         if (values.isEmpty()) return null

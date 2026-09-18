@@ -98,28 +98,27 @@ object LightColor {
         val t = top.coerceIn(0, frame.height - 1)
         val r = right.coerceIn(l + 1, frame.width)
         val b = bottom.coerceIn(t + 1, frame.height)
+        val width = r - l
+        val height = b - t
+        // One read of the whole box, then plain arithmetic: getPixel per pixel was far slower.
+        val pixels = IntArray(width * height)
+        frame.getPixels(pixels, 0, width, l, t, width, height)
         var red = 0
         var yellow = 0
         var green = 0
         val hsv = FloatArray(3)
-        var x = l
-        while (x < r) {
-            var y = t
-            while (y < b) {
-                Color.colorToHSV(frame.getPixel(x, y), hsv)
+        var i = 0
+        while (i < pixels.size) {
+            Color.colorToHSV(pixels[i], hsv)
+            if (hsv[1] >= MIN_SATURATION && hsv[2] >= MIN_VALUE) {
                 val hue = hsv[0]
-                val saturation = hsv[1]
-                val value = hsv[2]
-                if (saturation >= MIN_SATURATION && value >= MIN_VALUE) {
-                    when {
-                        hue <= 15f || hue >= 345f -> red++
-                        hue in 40f..70f -> yellow++
-                        hue in 80f..170f -> green++
-                    }
+                when {
+                    hue <= 15f || hue >= 345f -> red++
+                    hue in 40f..70f -> yellow++
+                    hue in 80f..170f -> green++
                 }
-                y += STEP
             }
-            x += STEP
+            i += STEP
         }
         return TrafficLightColor.of(red, yellow, green)
     }

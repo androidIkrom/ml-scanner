@@ -2,10 +2,7 @@ package com.classroomscanner.walk
 
 import android.app.Activity
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
-import android.graphics.Rect
-import android.graphics.YuvImage
 import android.media.Image
 import android.util.Log
 import com.google.ar.core.ArCoreApk
@@ -15,7 +12,6 @@ import com.google.ar.core.Session
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.NotYetAvailableException
 import com.google.ar.core.exceptions.UnavailableException
-import java.io.ByteArrayOutputStream
 import java.io.Closeable
 
 private const val TAG = "ClassroomScanner"
@@ -109,9 +105,13 @@ class ArCamera(private val activity: Activity) : Closeable {
     }
 }
 
-/** The camera image as a bitmap, or null when it is not ready. GL thread only. */
-fun Frame.cameraBitmap(): Bitmap? = try {
-    acquireCameraImage().use { it.toBitmap() }
+/**
+ * The camera image as a small RGB bitmap. The YUV planes are read straight into pixels, skipping
+ * rows and columns, because the detector works on a small image anyway: going through JPEG cost
+ * more than the detector itself. GL thread only.
+ */
+fun Frame.cameraBitmap(maxWidth: Int = 320): Bitmap? = try {
+    acquireCameraImage().use { it.toSmallBitmap(maxWidth) }
 } catch (e: NotYetAvailableException) {
     null
 } catch (e: Exception) {
@@ -119,29 +119,38 @@ fun Frame.cameraBitmap(): Bitmap? = try {
     null
 }
 
-private fun Image.toBitmap(): Bitmap? {
+private fun Image.toSmallBitmap(maxWidth: Int): Bitmap? {
     if (format != ImageFormat.YUV_420_888) return null
-    val nv21 = yuvToNv21(this)
-    val out = ByteArrayOutputStream()
-    YuvImage(nv21, ImageFormat.NV21, width, height, null)
-        .compressToJpeg(Rect(0, 0, width, height), JPEG_QUALITY, out)
-    val bytes = out.toByteArray()
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-}
+    var step = 1
+    while (width / (step + 1) >= maxWidth) step++
+    val outWidth = width / step
+    val outHeight = height / step
+    if (outWidth <= 0 || outHeight <= 0) return null
 
-private const val JPEG_QUALITY = 85
+    val yPlane = planes[0]
+    val uPlane = planes[1]
+    val vPlane = planes[2]
+    val yBuffer = yPlane.buffer
+    val uBuffer = uPlane.buffer
+    val vBuffer = vPlane.buffer
+    val pixels = IntArray(outWidth * outHeight)
 
-private fun yuvToNv21(image: Image): ByteArray {
-    val y = image.planes[0].buffer
-    val u = image.planes[1].buffer
-    val v = image.planes[2].buffer
-    val ySize = y.remaining()
-    val uSize = u.remaining()
-    val vSize = v.remaining()
-    val out = ByteArray(ySize + uSize + vSize)
-    y.get(out, 0, ySize)
-    // NV21 wants V and U interleaved; the planes are already close to that layout.
-    v.get(out, ySize, vSize)
-    u.get(out, ySize + vSize, uSize)
-    return out
+    for (row in 0 until outHeight) {
+        val y = row * step
+        val yRow = y * yPlane.rowStride
+        val uvRow = (y / 2) * uPlane.rowStride
+        for (col in 0 until outWidth) {
+            val x = col * step
+            val luma = yBuffer.get(yRow + x * yPlane.pixelStride).toInt() and 0xFF
+            val uvIndex = uvRow + (x / 2) * uPlane.pixelStride
+            val u = (uBuffer.get(uvIndex).toInt() and 0xFF) - 128
+            val v = (vBuffer.get(uvIndex).toInt() and 0xFF) - 128
+            // Integer YUV to RGB, the usual BT.601 coefficients scaled by 1024.
+            val r = (luma + 1436 * v / 1024).coerceIn(0, 255)
+            val g = (luma - 352 * u / 1024 - 731 * v / 1024).coerceIn(0, 255)
+            val b = (luma + 1814 * u / 1024).coerceIn(0, 255)
+            pixels[row * outWidth + col] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        }
+    }
+    return Bitmap.createBitmap(pixels, outWidth, outHeight, Bitmap.Config.ARGB_8888)
 }

@@ -45,6 +45,7 @@ import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.search.Beeper
 import com.classroomscanner.speech.SpeechAnnouncer
 import com.classroomscanner.walk.ArCamera
+import com.classroomscanner.walk.cameraBitmap
 import com.classroomscanner.walk.ArProblem
 import com.classroomscanner.walk.Compass
 import com.classroomscanner.walk.LightColor
@@ -81,6 +82,10 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private lateinit var steps: StepCounter
     private lateinit var places: PlaceStore
     private lateinit var analysisExecutor: ExecutorService
+
+    /** Signs and saved-name lookups are slower than the hazard pass, so they run beside it. */
+    private lateinit var extrasExecutor: ExecutorService
+    private val extrasBusy = AtomicBoolean(false)
     private val background = com.classroomscanner.walk.BackgroundRenderer()
 
     private var arCamera: ArCamera? = null
@@ -99,7 +104,12 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private var lastGround: String? = null
     private var lastLight: TrafficLightColor? = null
     private var lastSign: String? = null
-    private var lastSignAt = 0L
+    private var pendingSign: String? = null
+
+    /** A bigger frame, taken now and then: small letters cannot be read from the detector's frame. */
+    @Volatile private var signFrame: Bitmap? = null
+    private var lastSignFrameAt = 0L
+    @Volatile private var lastIds: List<Int> = emptyList()
 
     // Main thread only.
     private var beaconName: String? = null
@@ -127,6 +137,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         steps = StepCounter(context)
         places = PlaceStore(context)
         analysisExecutor = Executors.newSingleThreadExecutor()
+        extrasExecutor = Executors.newSingleThreadExecutor()
         analysisExecutor.execute { openModels(context) }
 
         binding.glView.preserveEGLContextOnPause = true
@@ -183,12 +194,13 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         super.onDestroyView()
         val camera = arCamera
         arCamera = null
-        analysisExecutor.execute {
-            detector?.clearObjectDetector()
+        analysisExecutor.execute { detector?.clearObjectDetector() }
+        extrasExecutor.execute {
+            signReader?.close()
             faceRecognizer?.close()
             itemRecognizer?.close()
-            signReader?.close()
         }
+        extrasExecutor.shutdown()
         analysisExecutor.shutdown()
         analysisExecutor.awaitTermination(2, TimeUnit.SECONDS)
         camera?.close()
@@ -198,12 +210,8 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
     private fun openModels(context: Context) {
         try {
-            detector = ObjectDetectorHelper(
-                threshold = MIN_SCORE,
-                currentModel = ObjectDetectorHelper.MODEL_EFFICIENTDETV0,
-                runningMode = RunningMode.IMAGE,
-                context = context,
-            )
+            detector = openDetector(context, ObjectDetectorHelper.DELEGATE_GPU)
+                ?: openDetector(context, ObjectDetectorHelper.DELEGATE_CPU)
             signReader = SignReader()
             val known = runBlocking { PeopleRepository(context).knownFaces() }
             if (known.isNotEmpty()) faceRecognizer = FaceRecognizer(context, known)
@@ -213,6 +221,20 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
             Log.w(TAG, "Walk models failed", e)
             onMain { say(getString(R.string.walk_models_failed)) }
         }
+    }
+
+    /** Null when this delegate cannot run the model. Analysis thread. */
+    private fun openDetector(context: Context, delegate: Int): ObjectDetectorHelper? = try {
+        ObjectDetectorHelper(
+            threshold = MIN_SCORE,
+            currentDelegate = delegate,
+            currentModel = ObjectDetectorHelper.MODEL_EFFICIENTDETV0,
+            runningMode = RunningMode.IMAGE,
+            context = context,
+        ).takeIf { !it.isClosed() }
+    } catch (e: Exception) {
+        Log.w(TAG, "Detector on delegate $delegate failed", e)
+        null
     }
 
     // ---- GL thread ----
@@ -236,6 +258,11 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         val now = SystemClock.uptimeMillis()
         if (now - lastAnalysisAt < ANALYSIS_GAP_MS || !busy.compareAndSet(false, true)) return
         lastAnalysisAt = now
+        val now2 = SystemClock.uptimeMillis()
+        if (now2 - lastSignFrameAt >= SIGN_GAP_MS && signFrame == null) {
+            lastSignFrameAt = now2
+            signFrame = frame.cameraBitmap(SIGN_WIDTH)
+        }
         val walkFrame = frame.toWalkFrame()
         if (walkFrame == null) {
             busy.set(false)
@@ -298,9 +325,10 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
         // Walls and doors have no class, so the depth image answers for them.
         val blocked = frame.depth?.let {
-            DepthObstacles.nearest(it.metresGrid(), it.width, it.height)
+            DepthObstacles.nearest(it.metresGrid, it.width, it.height)
         }.orEmpty()
-        val named = nameNearest(frame, confirmer.confirmed(hazards), boxes, labels, metresOf)
+        val named = nameNearest(confirmer.confirmed(hazards), boxes, labels)
+        requestExtras(frame, boxes, labels, metresOf)
         val obstacles = blocked.mapNotNull { (zone, metres) ->
             // Only where no known thing already explains what is there.
             if (named.any { it.zone == zone && abs(it.metres - metres) < SAME_THING_M }) {
@@ -319,7 +347,8 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         if (groundChanged) lastGround = frame.ground
         val lightChanged = light != null && light != lastLight
         if (lightChanged) lastLight = light
-        val sign = readSign(image)
+        val sign = pendingSign
+        pendingSign = null
 
         onMain {
             when {
@@ -334,29 +363,55 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         }
     }
 
-    /** Replaces the nearest hazard's class with a saved name when one matches. Analysis thread. */
+    /** Puts the saved names found so far on this frame's hazards. Analysis thread. */
     private fun nameNearest(
-        frame: WalkFrame,
         hazards: List<Hazard>,
         boxes: List<FloatArray>,
         labels: List<String>,
-        metres: List<Float>,
     ): List<Hazard> {
         if (hazards.isEmpty()) return hazards
-        val ids = stickyNames.track(
-            labels.map { if (it == PERSON) PERSON else THING },
-            boxes,
-        )
-        if (frameCount % NAME_EVERY == 0) {
-            val nearest = metres.indices.minByOrNull { metres[it] } ?: return hazards
-            if (!stickyNames.isDecided(ids[nearest])) {
-                val name = lookUpName(frame.image, boxes[nearest], labels[nearest])
-                stickyNames.vote(ids[nearest], name)
-            }
-        }
+        lastIds = stickyNames.track(labels.map { if (it == PERSON) PERSON else THING }, boxes)
         return hazards.mapIndexed { i, hazard ->
-            val name = stickyNames.nameOf(ids[i]) ?: return@mapIndexed hazard
+            val name = lastIds.getOrNull(i)?.let { stickyNames.nameOf(it) } ?: return@mapIndexed hazard
             hazard.copy(label = name)
+        }
+    }
+
+    /**
+     * Runs the slow extras beside the hazard pass: reading a sign and matching the nearest thing
+     * with saved people and items. One run at a time; their answers arrive on a later frame.
+     */
+    private fun requestExtras(
+        frame: WalkFrame,
+        boxes: List<FloatArray>,
+        labels: List<String>,
+        metres: List<Float>,
+    ) {
+        if (!extrasBusy.compareAndSet(false, true)) return
+        val ids = lastIds
+        val nearest = metres.indices.minByOrNull { metres[it] }
+        try {
+            extrasExecutor.execute {
+                try {
+                    if (nearest != null && ids.getOrNull(nearest) != null &&
+                        !stickyNames.isDecided(ids[nearest])
+                    ) {
+                        val name = lookUpName(frame.image, boxes[nearest], labels[nearest])
+                        stickyNames.vote(ids[nearest], name)
+                    }
+                    val forSign = signFrame
+                    if (forSign != null) {
+                        signFrame = null
+                        readSign(forSign)?.let { pendingSign = it }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Walk extras failed", e)
+                } finally {
+                    extrasBusy.set(false)
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            extrasBusy.set(false)
         }
     }
 
@@ -373,12 +428,9 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         null
     }
 
-    /** Reads the middle of the frame now and then; the same sign is not read twice. */
+    /** Reads the middle of a frame; the same sign is not read twice. Extras thread. */
     private fun readSign(image: Bitmap): String? {
         val reader = signReader ?: return null
-        val now = SystemClock.uptimeMillis()
-        if (now - lastSignAt < SIGN_GAP_MS) return null
-        lastSignAt = now
         val crop = image.cropBox(
             image.width * 0.2f, image.height * 0.1f,
             image.width * 0.8f, image.height * 0.7f,
@@ -538,8 +590,11 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
         /** A detected thing and a depth reading this close together are the same object. */
         const val SAME_THING_M = 1f
-        const val ANALYSIS_GAP_MS = 250L
+        const val ANALYSIS_GAP_MS = 150L
         const val SIGN_GAP_MS = 2_500L
+
+        /** Letters need pixels: the sign frame is bigger than the one the detector sees. */
+        const val SIGN_WIDTH = 960
         const val NAME_EVERY = 4
         const val BEACON_REPEAT_MS = 20_000L
         const val LOCATION_GAP_MS = 2_000L
