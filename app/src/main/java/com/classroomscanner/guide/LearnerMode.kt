@@ -38,6 +38,7 @@ class LearnerMode(context: Context) {
         R.id.item_fragment -> ScreenHelp.ITEM
         R.id.add_item_fragment -> ScreenHelp.ADD_ITEM
         R.id.item_enroll_fragment -> ScreenHelp.ITEM_SCAN
+        R.id.walk_fragment -> ScreenHelp.WALK
         R.id.search_fragment -> ScreenHelp.SEARCH
         R.id.search_camera_fragment -> ScreenHelp.SEARCHING
         else -> null

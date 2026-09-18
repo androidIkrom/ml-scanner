@@ -36,6 +36,7 @@ class ScanHubFragment : Fragment() {
             goFrom(here, ScanHubFragmentDirections.actionScanHubToSettings(ScanMode.LIVE))
         }
         binding.cardHistory.setOnClickListener { goFrom(here, ScanHubFragmentDirections.actionScanHubToHistory()) }
+        binding.cardWalk.setOnClickListener { goFrom(here, ScanHubFragmentDirections.actionScanHubToWalk()) }
     }
 
     override fun onDestroyView() {

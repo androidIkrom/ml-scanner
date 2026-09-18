@@ -15,6 +15,7 @@ object ScreenHelp {
     const val SCANNER = "scanner"
     const val SCAN_TEXT = "scan_text"
     const val HISTORY = "history"
+    const val WALK = "walk"
     const val SEARCH = "search"
     const val SEARCHING = "searching"
     const val SAVED = "saved"
@@ -45,6 +46,8 @@ object ScreenHelp {
             "button switches between the back and front camera. Ask who is this or what is this at any time.",
         SCAN_TEXT to "Scan text. Everything the app said in this scan, with the time, and the summary at the end.",
         HISTORY to "History. Every finished scan is kept on this phone, and play reads its summary again.",
+        WALK to "Walk mode. Hold the phone in front of you while you walk. It warns about what is in the " +
+            "way, with beeps that speed up as things come closer, and it can point to a place you saved.",
         SEARCH to "Search. Say or type what to find, like my bag, Ali, or chair. The app then guides you to " +
             "it with words, beeps that get faster near the middle, and a buzz when it is straight ahead.",
         SEARCHING to "Searching. Turn slowly. Beeps get faster as the thing moves to the middle of the view, " +
@@ -83,6 +86,7 @@ object ScreenHelp {
             t.contains("voice command") || t.contains("microphone") -> VOICE_COMMANDS
             t.contains("full scan") -> FULL_SCAN
             t.contains("live scan") -> LIVE_SCAN
+            t.contains("walk") -> WALK
             t.contains("search") -> SEARCH
             t.contains("saved") -> SAVED
             t.contains("history") -> HISTORY

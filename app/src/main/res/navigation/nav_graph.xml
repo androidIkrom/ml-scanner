@@ -50,6 +50,9 @@
         <action
             android:id="@+id/action_scan_hub_to_history"
             app:destination="@id/history_fragment" />
+        <action
+            android:id="@+id/action_scan_hub_to_walk"
+            app:destination="@id/walk_fragment" />
     </fragment>
 
     <fragment
@@ -214,7 +217,15 @@
             app:argType="boolean" />
     </fragment>
 
+    <fragment
+        android:id="@+id/walk_fragment"
+        android:name="com.classroomscanner.fragments.WalkFragment"
+        android:label="@string/label_walk" />
+
     <!-- Global actions so spoken commands work from every screen. -->
+    <action
+        android:id="@+id/action_global_walk"
+        app:destination="@id/walk_fragment" />
     <action
         android:id="@+id/action_global_search"
         app:destination="@id/search_fragment" />

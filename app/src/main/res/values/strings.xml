@@ -153,4 +153,24 @@
     <string name="learner_state_on">Learner mode: on</string>
     <string name="learner_state_off">Learner mode: off</string>
     <string name="help_unknown">I have nothing to say about that. Ask what is search, what is saved, or what is full scan.</string>
+    <string name="label_walk">Walk</string>
+    <string name="walk_desc">Warns about what is in your way while you walk.</string>
+    <string name="walk_started">Walk mode.</string>
+    <string name="walk_hint">Hold the phone in front of you. I speak only when something matters.</string>
+    <string name="walk_depth_on">Depth is on: distances are measured.</string>
+    <string name="walk_depth_off">No depth on this phone: distances are estimated.</string>
+    <string name="walk_ar_installing">Installing Google Play Services for AR. Open walk mode again when it is done.</string>
+    <string name="walk_ar_unsupported">This phone cannot run AR, so walk mode is not available.</string>
+    <string name="walk_ar_failed">Walk mode could not start the camera.</string>
+    <string name="walk_models_failed">Walk mode could not load its models.</string>
+    <string name="walk_sign">Sign: %s.</string>
+    <string name="walk_save_place">Save place</string>
+    <string name="walk_place_name">Name, for example home</string>
+    <string name="walk_guide_me">Guide me</string>
+    <string name="walk_place_saved">%s saved.</string>
+    <string name="walk_place_unknown">%s is not saved.</string>
+    <string name="walk_guiding">Guiding you to %s.</string>
+    <string name="walk_no_places">No places saved yet. Say save this place as home.</string>
+    <string name="walk_no_fix">Waiting for GPS. Go outside and try again.</string>
+    <string name="walk_no_location">Location access is needed to guide you to a place.</string>
 </resources>

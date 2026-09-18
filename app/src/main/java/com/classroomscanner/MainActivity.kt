@@ -184,6 +184,7 @@ class MainActivity : AppCompatActivity() {
             VoiceCommand.Back, VoiceCommand.Stop -> return navController.popBackStack()
             VoiceCommand.FullScan -> NavGraphDirections.actionGlobalSettings(ScanMode.FULL)
             VoiceCommand.LiveScan -> NavGraphDirections.actionGlobalSettings(ScanMode.LIVE)
+            VoiceCommand.Walk -> NavGraphDirections.actionGlobalWalk()
             VoiceCommand.History -> NavGraphDirections.actionGlobalHistory()
             VoiceCommand.Saved -> NavGraphDirections.actionGlobalSaved()
             is VoiceCommand.Search -> NavGraphDirections.actionGlobalSearch()

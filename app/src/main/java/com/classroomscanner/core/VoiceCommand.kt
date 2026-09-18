@@ -28,6 +28,11 @@ sealed interface VoiceCommand {
     data object IdentifyPerson : VoiceCommand
     data object IdentifyThing : VoiceCommand
 
+    /** Walk mode. */
+    data object Walk : VoiceCommand
+    data class SavePlace(val name: String) : VoiceCommand
+    data class GoTo(val name: String) : VoiceCommand
+
     /** Switches the microphone off. */
     data object StopListening : VoiceCommand
 
@@ -42,6 +47,8 @@ sealed interface VoiceCommand {
 
 /** Maps spoken commands to actions. English only; the app's speech is English. */
 object VoiceCommandParser {
+    private val savePlace = Regex("^(save this place as|save place as|save place|save this place)\\s+(.+)$")
+    private val goTo = Regex("^(take me to|guide me to|go to|walk me to)\\s+(.+)$")
     private val search = Regex("^(search for|search|find|where is|where are|wheres|look for|locate)\\s+(.+)$")
 
     fun parse(text: String): VoiceCommand {
@@ -59,6 +66,9 @@ object VoiceCommandParser {
         ) {
             return VoiceCommand.StopListening
         }
+        savePlace.find(t)?.let { return VoiceCommand.SavePlace(it.groupValues[2].trim()) }
+        goTo.find(t)?.let { return VoiceCommand.GoTo(it.groupValues[2].trim()) }
+        if ("walk" in words || "walking" in words) return VoiceCommand.Walk
         if (t.contains("learner")) {
             return VoiceCommand.Learner(!t.contains(" off") && !t.contains("stop"))
         }

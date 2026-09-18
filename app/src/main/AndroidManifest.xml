@@ -28,6 +28,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Walk mode points to a saved place with the compass; no maps and no internet. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <!-- Needed to bind a TextToSpeech engine on Android 11+ -->
     <queries>
@@ -46,6 +50,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:taskAffinity=""
         tools:ignore="AllowBackup">
+
+        <!-- ARCore is used by walk mode only; the app still installs where AR is missing. -->
+        <meta-data
+            android:name="com.google.ar.core"
+            android:value="optional" />
 
         <activity
             android:name=".MainActivity"

@@ -201,5 +201,62 @@
                     app:tint="?attr/colorOnSurface" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_walk"
+            style="?attr/materialCardViewFilledStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:clickable="true"
+            android:focusable="true"
+            app:cardBackgroundColor="?attr/colorSecondaryContainer"
+            app:cardCornerRadius="24dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="112dp"
+                android:orientation="horizontal"
+                android:padding="20dp">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_walk_24"
+                    app:tint="?attr/colorOnSecondaryContainer" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/label_walk"
+                        android:textAppearance="?attr/textAppearanceTitleLarge"
+                        android:textColor="?attr/colorOnSecondaryContainer" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/walk_desc"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnSecondaryContainer" />
+                </LinearLayout>
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_chevron_right_24"
+                    app:tint="?attr/colorOnSecondaryContainer" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

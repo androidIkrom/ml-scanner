@@ -65,6 +65,16 @@ class VoiceCommandParserTest {
     }
 
     @Test
+    fun walkCommands() {
+        assertEquals(VoiceCommand.Walk, VoiceCommandParser.parse("walk"))
+        assertEquals(VoiceCommand.Walk, VoiceCommandParser.parse("start walking"))
+        assertEquals(VoiceCommand.SavePlace("home"), VoiceCommandParser.parse("save this place as home"))
+        assertEquals(VoiceCommand.SavePlace("the shop"), VoiceCommandParser.parse("save place the shop"))
+        assertEquals(VoiceCommand.GoTo("home"), VoiceCommandParser.parse("take me to home"))
+        assertEquals(VoiceCommand.GoTo("the shop"), VoiceCommandParser.parse("guide me to the shop"))
+    }
+
+    @Test
     fun searchWithoutQueryAndNoiseAreUnknown() {
         assertEquals(VoiceCommand.Unknown, VoiceCommandParser.parse("find"))
         assertEquals(VoiceCommand.Unknown, VoiceCommandParser.parse("hello there"))
