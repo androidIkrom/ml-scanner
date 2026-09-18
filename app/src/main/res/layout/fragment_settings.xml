@@ -223,6 +223,15 @@
                         app:singleSelection="true">
 
                         <com.google.android.material.button.MaterialButton
+                            android:id="@+id/model_light"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:minHeight="48dp"
+                            android:text="@string/model_light" />
+
+                        <com.google.android.material.button.MaterialButton
                             android:id="@+id/model_fast"
                             style="?attr/materialButtonOutlinedStyle"
                             android:layout_width="0dp"

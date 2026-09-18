@@ -47,4 +47,19 @@ task downloadModelFile4(type: Download) {
     overwrite false
 }
 
+// SSD MobileNet V2 (COCO): a lighter detector than EfficientDet, used where speed matters.
+task downloadModelFile5(type: Download) {
+    src 'https://storage.googleapis.com/mediapipe-models/object_detector/ssd_mobilenet_v2/float32/1/ssd_mobilenet_v2.tflite'
+    dest project.ext.ASSET_DIR + '/ssd-mobilenet-v2.tflite'
+    overwrite false
+}
+
+// EfficientNet-Lite0 (ImageNet, 1000 classes): names things the COCO detector has no class for.
+task downloadModelFile6(type: Download) {
+    src 'https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite'
+    dest project.ext.ASSET_DIR + '/efficientnet-lite0.tflite'
+    overwrite false
+}
+
+preBuild.dependsOn downloadModelFile5, downloadModelFile6
 preBuild.dependsOn downloadModelFile0, downloadModelFile1, downloadModelFile2, downloadModelFile3, downloadModelFile4

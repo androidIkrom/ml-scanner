@@ -45,6 +45,7 @@ import com.classroomscanner.items.cropBox
 import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.search.Beeper
 import com.classroomscanner.speech.SpeechAnnouncer
+import com.classroomscanner.vision.SceneClassifier
 import com.classroomscanner.walk.ArCamera
 import com.classroomscanner.walk.ArProblem
 import com.classroomscanner.walk.Compass
@@ -107,6 +108,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private var faceRecognizer: FaceRecognizer? = null
     private var itemRecognizer: ItemRecognizer? = null
     private var signReader: SignReader? = null
+    private var classifier: SceneClassifier? = null
     private val alerts = WalkAlerts()
     private val confirmer = HazardConfirmer()
     private val stickyNames = StickyNames()
@@ -119,6 +121,8 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
     private var lastSignFrameAt = 0L
     private var lastSavedLookAt = 0L
+    private var lastGuessAt = 0L
+    private var lastGuess: String? = null
     private val saidSavedAt = HashMap<String, Long>()
     @Volatile private var lastIds: List<Int> = emptyList()
 
@@ -215,6 +219,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         arCamera = null
         analysisExecutor.execute { detector?.clearObjectDetector() }
         extrasExecutor.execute {
+            classifier?.close()
             signReader?.close()
             faceRecognizer?.close()
             itemRecognizer?.close()
@@ -232,6 +237,12 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
             detector = openDetector(context, ObjectDetectorHelper.DELEGATE_GPU)
                 ?: openDetector(context, ObjectDetectorHelper.DELEGATE_CPU)
             signReader = SignReader()
+            classifier = try {
+                SceneClassifier(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "Scene classifier unavailable", e)
+                null
+            }
             val known = runBlocking { PeopleRepository(context).knownFaces() }
             if (known.isNotEmpty()) faceRecognizer = FaceRecognizer(context, known)
             val items = runBlocking { ItemRepository(context).knownItems() }
@@ -353,12 +364,13 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         }.orEmpty()
         val named = nameNearest(confirmer.confirmed(hazards), boxes, labels)
         requestExtras(image, signImage, boxes, labels, metresOf)
+        val obstacleName = obstacleName(image, blocked)
         val obstacles = blocked.mapNotNull { (zone, metres) ->
             // Only where no known thing already explains what is there.
             if (named.any { it.zone == zone && abs(it.metres - metres) < SAME_THING_M }) {
                 null
             } else {
-                Hazard(getString(R.string.walk_obstacle), metres, zone)
+                Hazard(obstacleName, metres, zone)
             }
         }
         val all = named + obstacles
@@ -395,6 +407,31 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
             if (nearestAhead != null && nearestAhead!! < BUZZ_M) beeper.buzz()
             speakBeacon()
         }
+    }
+
+    /**
+     * What the thing blocking the way looks like, from the 1000-class model: "door", "stairway",
+     * "fence". Falls back to the plain word when it is unsure. Analysis thread.
+     */
+    private fun obstacleName(image: Bitmap, blocked: Map<WalkZone, Float>): String {
+        val plain = getString(R.string.walk_obstacle)
+        val guesser = classifier ?: return plain
+        if (blocked[WalkZone.AHEAD] == null) return plain
+        val now = SystemClock.uptimeMillis()
+        if (now - lastGuessAt < GUESS_GAP_MS) return lastGuess ?: plain
+        lastGuessAt = now
+        val middle = image.cropBox(
+            image.width * 0.33f, image.height * 0.25f,
+            image.width * 0.67f, image.height * 0.75f,
+        ) ?: return plain
+        val guess = try {
+            guesser.name(middle)
+        } catch (e: Exception) {
+            Log.w(TAG, "Obstacle guess failed", e)
+            null
+        }
+        lastGuess = guess ?: plain
+        return lastGuess ?: plain
     }
 
     private fun boxOf(box: android.graphics.RectF) = floatArrayOf(box.left, box.top, box.right, box.bottom)
@@ -689,6 +726,9 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         /** How often the saved things are looked for, and how long before the same one is said again. */
         const val SAVED_LOOK_MS = 900L
         const val SAVED_REPEAT_MS = 30_000L
+
+        /** Guessing what a wall or door is costs a model run, so it is not done every frame. */
+        const val GUESS_GAP_MS = 1_500L
 
         /** What the detector sees; bigger than this buys nothing and costs conversion time. */
         const val DETECT_WIDTH = 480

@@ -6,7 +6,11 @@ enum class CameraFacing { BACK, FRONT }
 
 enum class Compute { CPU, GPU }
 
-enum class ModelChoice { FAST, ACCURATE }
+/**
+ * Which detector runs: SSD MobileNet V2 is the lightest, EfficientDet-Lite0 sits in the middle and
+ * Lite2 sees the most. All three are Google's COCO models and all run on the phone.
+ */
+enum class ModelChoice { LIGHT, FAST, ACCURATE }
 
 /** Everything the user picks on the Scan settings screen. */
 data class ScanSettings(

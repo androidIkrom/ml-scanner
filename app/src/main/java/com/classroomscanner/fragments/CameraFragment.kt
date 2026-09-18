@@ -55,6 +55,7 @@ import com.classroomscanner.sensor.CameraFov
 import com.classroomscanner.sensor.HeadingProvider
 import com.classroomscanner.settings.SettingsStore
 import com.classroomscanner.speech.SpeechAnnouncer
+import com.classroomscanner.vision.SceneClassifier
 import com.google.android.material.color.MaterialColors
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import java.util.concurrent.ExecutorService
@@ -112,6 +113,9 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
     @Volatile
     private var itemRecognizer: ItemRecognizer? = null
 
+    /** Loaded the first time someone asks what something is. Detector thread only. */
+    @Volatile private var classifier: SceneClassifier? = null
+
     // Name decisions for tracked objects; MediaPipe result thread only.
     private val stickyNames = StickyNames()
     private var nameFrames = 0
@@ -164,9 +168,12 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
         outliner = null
         outlineExecutor.execute { shapes?.close() }
         outlineExecutor.shutdown()
+        val guesser = classifier
+        classifier = null
         backgroundExecutor.execute {
             recognizer?.close()
             items?.close()
+            guesser?.close()
         }
         backgroundExecutor.shutdown()
         if (!backgroundExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
@@ -208,10 +215,10 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
                 } else {
                     ObjectDetectorHelper.DELEGATE_CPU
                 },
-                currentModel = if (settings.model == ModelChoice.FAST) {
-                    ObjectDetectorHelper.MODEL_EFFICIENTDETV0
-                } else {
-                    ObjectDetectorHelper.MODEL_EFFICIENTDETV2
+                currentModel = when (settings.model) {
+                    ModelChoice.LIGHT -> ObjectDetectorHelper.MODEL_SSD_MOBILENET_V2
+                    ModelChoice.FAST -> ObjectDetectorHelper.MODEL_EFFICIENTDETV0
+                    ModelChoice.ACCURATE -> ObjectDetectorHelper.MODEL_EFFICIENTDETV2
                 },
                 context = context,
                 objectDetectorListener = this,
@@ -615,8 +622,13 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
     private fun identify(peopleOnly: Boolean) {
         val look = lastLook
         val candidates = look?.seen?.filter { !peopleOnly || it.label == PERSON || it.isName }.orEmpty()
-        if (look == null || candidates.isEmpty()) {
+        if (look == null || (candidates.isEmpty() && peopleOnly)) {
             speech.speakNow(getString(if (peopleOnly) R.string.identify_no_person else R.string.identify_nothing))
+            return
+        }
+        if (candidates.isEmpty()) {
+            // The detector saw nothing it can name; the thousand-class model still can.
+            guessMiddle(look)
             return
         }
         val target = candidates.minByOrNull { kotlin.math.abs(it.centerX - 0.5f) } ?: return
@@ -641,6 +653,56 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
             }
         } catch (e: RejectedExecutionException) {
             speech.speakNow(getString(R.string.identify_is, fallback))
+        }
+    }
+
+    /**
+     * Answers with the 1000-class model when the COCO detector had no box: it names doors, stairs,
+     * windows, food and much else the eighty COCO classes leave out.
+     */
+    private fun guessMiddle(look: Look) {
+        val frame = look.frame
+        if (frame == null) {
+            speech.speakNow(getString(R.string.identify_nothing))
+            return
+        }
+        try {
+            backgroundExecutor.execute {
+                val guess = try {
+                    val middle = frame.cropBox(
+                        frame.width * 0.25f, frame.height * 0.25f,
+                        frame.width * 0.75f, frame.height * 0.75f,
+                    )?.upright(look.rotation)
+                    middle?.let { sceneClassifier()?.name(it) }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Guessing failed", e)
+                    null
+                }
+                activity?.runOnUiThread {
+                    if (_fragmentCameraBinding == null) return@runOnUiThread
+                    speech.speakNow(
+                        if (guess == null) {
+                            getString(R.string.identify_nothing)
+                        } else {
+                            getString(R.string.identify_maybe, guess)
+                        }
+                    )
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            speech.speakNow(getString(R.string.identify_nothing))
+        }
+    }
+
+    /** Detector thread: the classifier is only loaded when it is first needed. */
+    private fun sceneClassifier(): SceneClassifier? {
+        classifier?.let { return it }
+        val context = context?.applicationContext ?: return null
+        return try {
+            SceneClassifier(context).also { classifier = it }
+        } catch (e: Exception) {
+            Log.w(TAG, "Scene classifier unavailable", e)
+            null
         }
     }
 

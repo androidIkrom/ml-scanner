@@ -78,7 +78,13 @@ class SettingsFragment : Fragment() {
     private fun show(s: ScanSettings) {
         binding.cameraGroup.check(if (s.camera == CameraFacing.FRONT) R.id.camera_front else R.id.camera_back)
         binding.computeGroup.check(if (s.compute == Compute.GPU) R.id.compute_gpu else R.id.compute_cpu)
-        binding.modelGroup.check(if (s.model == ModelChoice.FAST) R.id.model_fast else R.id.model_accurate)
+        binding.modelGroup.check(
+            when (s.model) {
+                ModelChoice.LIGHT -> R.id.model_light
+                ModelChoice.FAST -> R.id.model_fast
+                ModelChoice.ACCURATE -> R.id.model_accurate
+            }
+        )
         binding.confidenceSlider.value = s.minScore
         binding.speechSwitch.isChecked = s.speechOn
         binding.colorsSwitch.isChecked = s.colorsOn
@@ -87,7 +93,11 @@ class SettingsFragment : Fragment() {
     private fun readSettings() = ScanSettings(
         camera = if (binding.cameraGroup.checkedButtonId == R.id.camera_front) CameraFacing.FRONT else CameraFacing.BACK,
         compute = if (binding.computeGroup.checkedButtonId == R.id.compute_gpu) Compute.GPU else Compute.CPU,
-        model = if (binding.modelGroup.checkedButtonId == R.id.model_fast) ModelChoice.FAST else ModelChoice.ACCURATE,
+        model = when (binding.modelGroup.checkedButtonId) {
+            R.id.model_light -> ModelChoice.LIGHT
+            R.id.model_fast -> ModelChoice.FAST
+            else -> ModelChoice.ACCURATE
+        },
         minScore = binding.confidenceSlider.value,
         speechOn = binding.speechSwitch.isChecked,
         colorsOn = binding.colorsSwitch.isChecked,

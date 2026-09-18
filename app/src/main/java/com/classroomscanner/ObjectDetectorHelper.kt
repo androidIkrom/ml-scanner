@@ -83,6 +83,7 @@ class ObjectDetectorHelper(
         val modelName = when (currentModel) {
             MODEL_EFFICIENTDETV0 -> "efficientdet-lite0.tflite"
             MODEL_EFFICIENTDETV2 -> "efficientdet-lite2.tflite"
+            MODEL_SSD_MOBILENET_V2 -> "ssd-mobilenet-v2.tflite"
             else -> "efficientdet-lite0.tflite"
         }
 
@@ -352,6 +353,7 @@ class ObjectDetectorHelper(
         const val DELEGATE_GPU = 1
         const val MODEL_EFFICIENTDETV0 = 0
         const val MODEL_EFFICIENTDETV2 = 1
+        const val MODEL_SSD_MOBILENET_V2 = 2
         const val MAX_RESULTS_DEFAULT = 10
         const val THRESHOLD_DEFAULT = DetectionFilter.DETECTOR_THRESHOLD
         const val OTHER_ERROR = 0
