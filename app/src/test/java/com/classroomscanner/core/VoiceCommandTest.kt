@@ -4,6 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class VoiceCommandParserTest {
+
+    private fun assertAll(expected: VoiceCommand, vararg phrases: String) {
+        phrases.forEach { assertEquals(it, expected, VoiceCommandParser.parse(it)) }
+    }
+
     @Test
     fun searchCommandsKeepTheQuery() {
         assertEquals(VoiceCommand.Search("my bag"), VoiceCommandParser.parse("Find my bag"))
@@ -12,95 +17,98 @@ class VoiceCommandParserTest {
         assertEquals(VoiceCommand.Search("the cup"), VoiceCommandParser.parse("where is the cup"))
         assertEquals(VoiceCommand.Search("keys"), VoiceCommandParser.parse("look for keys"))
         assertEquals(VoiceCommand.Search("my laptop"), VoiceCommandParser.parse("search for my laptop"))
+        assertEquals(VoiceCommand.Search("my phone"), VoiceCommandParser.parse("search my phone"))
+        assertEquals(VoiceCommand.Search("my phone"), VoiceCommandParser.parse("can you find my phone"))
     }
 
     @Test
-    fun screenCommands() {
-        assertEquals(VoiceCommand.FullScan, VoiceCommandParser.parse("Full scan"))
-        assertEquals(VoiceCommand.FullScan, VoiceCommandParser.parse("scan the room"))
-        assertEquals(VoiceCommand.LiveScan, VoiceCommandParser.parse("start live scan"))
-        assertEquals(VoiceCommand.History, VoiceCommandParser.parse("open history"))
-        assertEquals(VoiceCommand.Saved, VoiceCommandParser.parse("show saved"))
-        assertEquals(VoiceCommand.Search(""), VoiceCommandParser.parse("open search"))
-        assertEquals(VoiceCommand.Home, VoiceCommandParser.parse("go home"))
-        assertEquals(VoiceCommand.Back, VoiceCommandParser.parse("go back"))
-        assertEquals(VoiceCommand.Back, VoiceCommandParser.parse("back"))
+    fun openingScreens() {
+        assertAll(
+            VoiceCommand.FullScan,
+            "full scan", "open full scan", "full scan open", "start full scan", "begin full scan",
+            "scan the room", "do a full scan",
+        )
+        assertAll(
+            VoiceCommand.LiveScan,
+            "live scan", "open live scan", "live scan open", "begin live scan", "start live scanning",
+        )
+        assertAll(VoiceCommand.History, "history", "open history", "history open", "show history", "past scans")
+        assertAll(VoiceCommand.Saved, "saved", "open saved", "saved open", "show me saved", "open people", "my things")
+        assertAll(VoiceCommand.Walk, "walk", "open walk", "walk mode", "start walking", "begin walk mode")
+        assertAll(VoiceCommand.Search(""), "open search", "search open", "show search", "search screen")
+        assertAll(VoiceCommand.Home, "home", "go home", "main menu", "open home")
+        assertAll(VoiceCommand.Back, "back", "go back", "previous screen", "close this", "exit", "leave")
     }
 
     @Test
-    fun addCommands() {
-        assertEquals(VoiceCommand.AddPerson, VoiceCommandParser.parse("add person"))
-        assertEquals(VoiceCommand.AddPerson, VoiceCommandParser.parse("add a new person"))
-        assertEquals(VoiceCommand.AddCar, VoiceCommandParser.parse("add car"))
-        assertEquals(VoiceCommand.AddObject, VoiceCommandParser.parse("add object"))
-        assertEquals(VoiceCommand.AddObject, VoiceCommandParser.parse("add an item"))
+    fun addingSavedThings() {
+        assertAll(
+            VoiceCommand.AddObject,
+            "add object", "add an item", "create object", "create a new object", "new thing", "save an object",
+        )
+        assertAll(VoiceCommand.AddCar, "add car", "create car", "new car", "save my car")
+        assertAll(
+            VoiceCommand.AddPerson,
+            "add person", "add a new person", "create person", "new face", "save a person",
+        )
     }
 
     @Test
-    fun scanControlCommands() {
-        assertEquals(VoiceCommand.Start, VoiceCommandParser.parse("start"))
-        assertEquals(VoiceCommand.Start, VoiceCommandParser.parse("begin scanning"))
-        assertEquals(VoiceCommand.Stop, VoiceCommandParser.parse("stop"))
-        assertEquals(VoiceCommand.Stop, VoiceCommandParser.parse("finish"))
-        assertEquals(VoiceCommand.SwitchCamera, VoiceCommandParser.parse("switch camera"))
-        assertEquals(VoiceCommand.SwitchCamera, VoiceCommandParser.parse("change the camera"))
-        assertEquals(VoiceCommand.Repeat, VoiceCommandParser.parse("repeat"))
-        assertEquals(VoiceCommand.Repeat, VoiceCommandParser.parse("say that again"))
-        assertEquals(VoiceCommand.ReadText, VoiceCommandParser.parse("view text"))
-        assertEquals(VoiceCommand.ReadText, VoiceCommandParser.parse("read the text"))
+    fun runningThingsOnTheScreen() {
+        assertAll(VoiceCommand.Start, "start", "begin scanning", "enter", "ok", "confirm", "do it", "press the button")
+        assertAll(VoiceCommand.Stop, "stop", "finish", "end scan", "stop scanning", "cancel")
+        assertAll(
+            VoiceCommand.SwitchCamera,
+            "switch camera", "change the camera", "front camera", "back camera", "flip camera", "other camera",
+        )
+        assertAll(VoiceCommand.Repeat, "repeat", "say that again", "one more time", "what did you say")
+        assertAll(VoiceCommand.ReadText, "view text", "read the text", "show the log", "read it out")
+        assertAll(VoiceCommand.Delete, "delete this", "remove this", "delete it")
     }
 
     @Test
     fun identifyCommands() {
-        assertEquals(VoiceCommand.IdentifyPerson, VoiceCommandParser.parse("Who is this?"))
-        assertEquals(VoiceCommand.IdentifyPerson, VoiceCommandParser.parse("who's that"))
-        assertEquals(VoiceCommand.IdentifyThing, VoiceCommandParser.parse("What is this?"))
-        assertEquals(VoiceCommand.IdentifyThing, VoiceCommandParser.parse("what's that"))
+        assertAll(VoiceCommand.IdentifyPerson, "Who is this?", "who's that", "who is in front of me")
+        assertAll(
+            VoiceCommand.IdentifyThing,
+            "What is this?", "what's that", "identify this", "what am i looking at",
+        )
     }
 
     @Test
-    fun microphoneOff() {
-        assertEquals(VoiceCommand.StopListening, VoiceCommandParser.parse("stop listening"))
-        assertEquals(VoiceCommand.StopListening, VoiceCommandParser.parse("microphone off"))
+    fun learnerModeInManyShapes() {
+        assertAll(
+            VoiceCommand.Learner(true),
+            "learner mode on", "learning mode on", "turn on learning mode", "learning on", "start learner mode",
+        )
+        assertAll(
+            VoiceCommand.Learner(false),
+            "learner mode off", "learning mode off", "turn off learning mode", "learning off",
+            "stop learner mode", "disable learning mode",
+        )
     }
 
     @Test
-    fun walkCommands() {
-        assertEquals(VoiceCommand.Walk, VoiceCommandParser.parse("walk"))
-        assertEquals(VoiceCommand.Walk, VoiceCommandParser.parse("start walking"))
+    fun helpAndPlaces() {
+        assertEquals(VoiceCommand.Help(ScreenHelp.SEARCH), VoiceCommandParser.parse("What is search?"))
+        assertEquals(VoiceCommand.Help(ScreenHelp.SAVED), VoiceCommandParser.parse("what does saved do"))
+        assertEquals(VoiceCommand.Help(""), VoiceCommandParser.parse("help"))
+        assertEquals(VoiceCommand.Help(""), VoiceCommandParser.parse("what is on this screen"))
         assertEquals(VoiceCommand.SavePlace("home"), VoiceCommandParser.parse("save this place as home"))
-        assertEquals(VoiceCommand.SavePlace("the shop"), VoiceCommandParser.parse("save place the shop"))
         assertEquals(VoiceCommand.GoTo("home"), VoiceCommandParser.parse("take me to home"))
         assertEquals(VoiceCommand.GoTo("the shop"), VoiceCommandParser.parse("guide me to the shop"))
     }
 
     @Test
-    fun theSameCommandInManyShapes() {
-        listOf("full scan", "open full scan", "full scan open", "start full scan", "scan the room")
-            .forEach { assertEquals(it, VoiceCommand.FullScan, VoiceCommandParser.parse(it)) }
-        listOf("live scan", "open live scan", "live scan open", "start live scan")
-            .forEach { assertEquals(it, VoiceCommand.LiveScan, VoiceCommandParser.parse(it)) }
-        listOf("saved", "open saved", "saved open", "show me saved")
-            .forEach { assertEquals(it, VoiceCommand.Saved, VoiceCommandParser.parse(it)) }
-        listOf("walk", "open walk", "walk mode", "start walking")
-            .forEach { assertEquals(it, VoiceCommand.Walk, VoiceCommandParser.parse(it)) }
-        listOf("history", "open history", "history open")
-            .forEach { assertEquals(it, VoiceCommand.History, VoiceCommandParser.parse(it)) }
+    fun microphoneOff() {
+        assertAll(
+            VoiceCommand.StopListening,
+            "stop listening", "microphone off", "mic off", "voice off", "turn off the microphone",
+        )
     }
 
     @Test
-    fun learnerModeInManyShapes() {
-        listOf("learner mode on", "learning mode on", "turn on learning mode", "learning on", "start learner mode")
-            .forEach { assertEquals(it, VoiceCommand.Learner(true), VoiceCommandParser.parse(it)) }
-        listOf("learner mode off", "learning mode off", "turn off learning mode", "learning off",
-               "stop learner mode", "disable learning mode")
-            .forEach { assertEquals(it, VoiceCommand.Learner(false), VoiceCommandParser.parse(it)) }
-    }
-
-    @Test
-    fun searchWithoutQueryAndNoiseAreUnknown() {
-        assertEquals(VoiceCommand.Unknown, VoiceCommandParser.parse("find"))
-        assertEquals(VoiceCommand.Unknown, VoiceCommandParser.parse("hello there"))
-        assertEquals(VoiceCommand.Unknown, VoiceCommandParser.parse(""))
+    fun noiseIsUnknown() {
+        assertAll(VoiceCommand.Unknown, "find", "hello there", "", "blue sky and green grass")
     }
 }

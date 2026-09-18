@@ -165,7 +165,7 @@ class SavedFragment : Fragment(), VoiceCommandTarget {
 }
 
 /** One saved car or object: photo, name and Delete. */
-class ItemFragment : Fragment() {
+class ItemFragment : Fragment(), VoiceCommandTarget {
 
     private val args: ItemFragmentArgs by navArgs()
     private var _binding: FragmentPersonBinding? = null
@@ -210,13 +210,21 @@ class ItemFragment : Fragment() {
         super.onDestroyView()
     }
 
+    override fun onVoiceCommand(command: VoiceCommand): Boolean = when (command) {
+        VoiceCommand.Delete -> {
+            _binding?.deleteButton?.performClick()
+            true
+        }
+        else -> false
+    }
+
     private companion object {
         const val PHOTO_PX = 720
     }
 }
 
 /** Step 1 of adding a car or object: name and camera. */
-class AddItemFragment : Fragment() {
+class AddItemFragment : Fragment(), VoiceCommandTarget {
 
     private val args: AddItemFragmentArgs by navArgs()
     private var _binding: FragmentAddPersonBinding? = null
@@ -274,6 +282,14 @@ class AddItemFragment : Fragment() {
         voice.release()
         _binding = null
         super.onDestroyView()
+    }
+
+    override fun onVoiceCommand(command: VoiceCommand): Boolean = when (command) {
+        VoiceCommand.Start -> {
+            _binding?.startButton?.performClick()
+            true
+        }
+        else -> false
     }
 
     private fun name() = binding.nameInput.text?.toString()?.trim().orEmpty()

@@ -16,6 +16,8 @@ import com.classroomscanner.core.SavedKind
 import com.classroomscanner.core.SavedName
 import com.classroomscanner.core.SearchResolver
 import com.classroomscanner.core.SearchTarget
+import com.classroomscanner.core.VoiceCommand
+import com.classroomscanner.guide.VoiceCommandTarget
 import com.classroomscanner.databinding.FragmentSearchBinding
 import com.classroomscanner.items.ItemRepository
 import com.classroomscanner.people.PeopleRepository
@@ -25,7 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Asks what to find (voice or text), resolves it, then opens the search camera. */
-class SearchFragment : Fragment() {
+class SearchFragment : Fragment(), VoiceCommandTarget {
 
     private val args: SearchFragmentArgs by navArgs()
     private var _binding: FragmentSearchBinding? = null
@@ -76,6 +78,16 @@ class SearchFragment : Fragment() {
         voice.release()
         _binding = null
         super.onDestroyView()
+    }
+
+    override fun onVoiceCommand(command: VoiceCommand): Boolean = when (command) {
+        VoiceCommand.Start -> {
+            // With something typed, search it; with nothing, listen for it.
+            val typed = _binding?.queryInput?.text?.toString().orEmpty()
+            if (typed.isBlank()) voice.listen() else resolve(typed)
+            true
+        }
+        else -> false
     }
 
     private fun resolve(text: String) {

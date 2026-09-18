@@ -182,7 +182,8 @@ class MainActivity : AppCompatActivity() {
         val directions = when (command) {
             VoiceCommand.Home -> return navController.popBackStack(R.id.home_fragment, false)
             VoiceCommand.Back, VoiceCommand.Stop -> return navController.popBackStack()
-            VoiceCommand.FullScan -> NavGraphDirections.actionGlobalSettings(ScanMode.FULL)
+            // "Start" on a screen with nothing to start means: start scanning.
+            VoiceCommand.FullScan, VoiceCommand.Start -> NavGraphDirections.actionGlobalSettings(ScanMode.FULL)
             VoiceCommand.LiveScan -> NavGraphDirections.actionGlobalSettings(ScanMode.LIVE)
             VoiceCommand.Walk -> NavGraphDirections.actionGlobalWalk()
             VoiceCommand.History -> NavGraphDirections.actionGlobalHistory()

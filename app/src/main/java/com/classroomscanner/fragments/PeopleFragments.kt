@@ -14,6 +14,8 @@ import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import com.classroomscanner.MainActivity
 import com.classroomscanner.R
+import com.classroomscanner.core.VoiceCommand
+import com.classroomscanner.guide.VoiceCommandTarget
 import com.classroomscanner.databinding.FragmentAddPersonBinding
 import com.classroomscanner.databinding.FragmentPersonBinding
 import com.classroomscanner.people.PeopleRepository
@@ -36,7 +38,7 @@ internal fun Fragment.speak(text: String) {
 }
 
 /** One saved person: photo, name and Delete. */
-class PersonFragment : Fragment() {
+class PersonFragment : Fragment(), VoiceCommandTarget {
 
     private val args: PersonFragmentArgs by navArgs()
     private var _binding: FragmentPersonBinding? = null
@@ -76,6 +78,15 @@ class PersonFragment : Fragment() {
         }
     }
 
+    /** "Delete this" works without finding the button. */
+    override fun onVoiceCommand(command: VoiceCommand): Boolean = when (command) {
+        VoiceCommand.Delete -> {
+            _binding?.deleteButton?.performClick()
+            true
+        }
+        else -> false
+    }
+
     override fun onDestroyView() {
         _binding = null
         super.onDestroyView()
@@ -87,7 +98,7 @@ class PersonFragment : Fragment() {
 }
 
 /** Step 1 of adding a person: name and camera. */
-class AddPersonFragment : Fragment() {
+class AddPersonFragment : Fragment(), VoiceCommandTarget {
 
     private var _binding: FragmentAddPersonBinding? = null
     private val binding get() = _binding!!
@@ -138,6 +149,14 @@ class AddPersonFragment : Fragment() {
         voice.release()
         _binding = null
         super.onDestroyView()
+    }
+
+    override fun onVoiceCommand(command: VoiceCommand): Boolean = when (command) {
+        VoiceCommand.Start -> {
+            _binding?.startButton?.performClick()
+            true
+        }
+        else -> false
     }
 
     private fun name() = binding.nameInput.text?.toString()?.trim().orEmpty()

@@ -15,12 +15,15 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
+import com.classroomscanner.R
+import com.classroomscanner.core.VoiceCommand
 import com.classroomscanner.databinding.FragmentPermissionsBinding
+import com.classroomscanner.guide.VoiceCommandTarget
 
 private val PERMISSIONS_REQUIRED = arrayOf(Manifest.permission.CAMERA)
 
 /** Asks for the camera permission, explains why, and continues to the scanner once granted. */
-class PermissionsFragment : Fragment() {
+class PermissionsFragment : Fragment(), VoiceCommandTarget {
 
     private val args: PermissionsFragmentArgs by navArgs()
     private var navigated = false
@@ -61,6 +64,13 @@ class PermissionsFragment : Fragment() {
         if (navigated) return
         navigated = true
         findNavController().navigate(PermissionsFragmentDirections.actionPermissionsToCamera(args.mode))
+    }
+
+    override fun onVoiceCommand(command: VoiceCommand): Boolean = when (command) {
+        VoiceCommand.Start -> {
+            view?.findViewById<android.view.View>(R.id.grant_button)?.performClick() != null
+        }
+        else -> false
     }
 
     companion object {

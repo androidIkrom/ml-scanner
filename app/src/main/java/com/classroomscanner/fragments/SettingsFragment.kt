@@ -12,6 +12,8 @@ import com.classroomscanner.R
 import com.classroomscanner.core.CameraFacing
 import com.classroomscanner.core.Compute
 import com.classroomscanner.core.ModelChoice
+import com.classroomscanner.core.VoiceCommand
+import com.classroomscanner.guide.VoiceCommandTarget
 import com.classroomscanner.core.ScanMode
 import com.classroomscanner.core.ScanSettings
 import com.classroomscanner.databinding.FragmentSettingsBinding
@@ -19,7 +21,7 @@ import com.classroomscanner.settings.SettingsStore
 import java.util.Locale
 
 /** Lets the user choose camera, processing, model, confidence, speech and colors before scanning. */
-class SettingsFragment : Fragment() {
+class SettingsFragment : Fragment(), VoiceCommandTarget {
 
     private val args: SettingsFragmentArgs by navArgs()
     private var _binding: FragmentSettingsBinding? = null
@@ -60,6 +62,15 @@ class SettingsFragment : Fragment() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         _binding?.let { outState.putBoolean(KEY_OPTIONS_OPEN, it.optionsContent.isVisible) }
+    }
+
+    /** Spoken commands for this screen. */
+    override fun onVoiceCommand(command: VoiceCommand): Boolean = when (command) {
+        VoiceCommand.Start -> {
+            _binding?.startButton?.performClick()
+            true
+        }
+        else -> false
     }
 
     override fun onDestroyView() {
