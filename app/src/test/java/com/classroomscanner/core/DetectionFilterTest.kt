@@ -5,7 +5,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DetectionFilterTest {
-    private val default = DetectionFilter()
+    /** The middle of the confidence slider; the app now starts at the strict end. */
+    private val default = DetectionFilter(0.5f)
+
+    @Test
+    fun outOfTheBoxOnlySureThingsAreKept() {
+        val app = DetectionFilter()
+        assertFalse(app.keep("chair", 0.69f))
+        assertTrue(app.keep("chair", 0.7f))
+        // People are still accepted a little earlier, so a half-hidden person is not missed.
+        assertTrue(app.keep("person", 0.5f))
+        assertFalse(app.keep("person", 0.49f))
+    }
 
     @Test
     fun peopleAreKeptFromTheLowerThreshold() {

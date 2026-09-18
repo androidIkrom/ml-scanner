@@ -215,16 +215,8 @@ class CameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelper.Dete
         backgroundExecutor = Executors.newSingleThreadExecutor()
         backgroundExecutor.execute {
             objectDetectorHelper = ObjectDetectorHelper(
-                currentDelegate = if (settings.compute == Compute.GPU) {
-                    ObjectDetectorHelper.DELEGATE_GPU
-                } else {
-                    ObjectDetectorHelper.DELEGATE_CPU
-                },
-                currentModel = when (settings.model) {
-                    ModelChoice.LIGHT -> ObjectDetectorHelper.MODEL_SSD_MOBILENET_V2
-                    ModelChoice.FAST -> ObjectDetectorHelper.MODEL_EFFICIENTDETV0
-                    ModelChoice.ACCURATE -> ObjectDetectorHelper.MODEL_EFFICIENTDETV2
-                },
+                currentDelegate = delegateOf(settings.compute),
+                currentModel = modelOf(settings.model),
                 context = context,
                 objectDetectorListener = this,
                 runningMode = RunningMode.LIVE_STREAM

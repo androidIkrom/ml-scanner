@@ -10,9 +10,9 @@ class ScanSettingsTest {
     fun defaults() {
         val s = ScanSettings()
         assertEquals(CameraFacing.BACK, s.camera)
-        assertEquals(Compute.CPU, s.compute)
+        assertEquals(Compute.GPU, s.compute)
         assertEquals(ModelChoice.ACCURATE, s.model)
-        assertEquals(0.5f, s.minScore, 0f)
+        assertEquals(0.7f, s.minScore, 0f)
         assertTrue(s.speechOn)
         assertTrue(s.colorsOn)
     }
@@ -31,6 +31,6 @@ class ScanSettingsTest {
 
     @Test
     fun nanFallsBackToDefault() {
-        assertEquals(0.5f, ScanSettings(minScore = Float.NaN).normalized().minScore, 0f)
+        assertEquals(0.7f, ScanSettings(minScore = Float.NaN).normalized().minScore, 0f)
     }
 }

@@ -37,6 +37,7 @@ import com.classroomscanner.items.ItemRepository
 import com.classroomscanner.items.cropBox
 import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.search.Beeper
+import com.classroomscanner.settings.SettingsStore
 import com.classroomscanner.speech.SpeechAnnouncer
 import com.google.mediapipe.tasks.components.containers.Detection
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -117,9 +118,11 @@ class SearchCameraFragment : Fragment(), VoiceCommandTarget, ObjectDetectorHelpe
         }
         executor = Executors.newSingleThreadExecutor()
         executor.execute {
+            val settings = SettingsStore(context).load()
             detector = ObjectDetectorHelper(
                 threshold = MIN_SCORE,
-                currentModel = ObjectDetectorHelper.MODEL_EFFICIENTDETV2,
+                currentDelegate = delegateOf(settings.compute),
+                currentModel = modelOf(settings.model),
                 runningMode = RunningMode.LIVE_STREAM,
                 context = context,
                 objectDetectorListener = this,

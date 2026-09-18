@@ -36,6 +36,7 @@ import com.classroomscanner.items.ItemEmbedder
 import com.classroomscanner.items.ItemRepository
 import com.classroomscanner.items.cropBox
 import com.classroomscanner.outline.ObjectOutliner
+import com.classroomscanner.settings.SettingsStore
 import com.classroomscanner.speech.SpeechAnnouncer
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetectorResult
@@ -102,9 +103,11 @@ class ItemEnrollFragment : Fragment() {
         }
         executor.execute {
             try {
+                val settings = SettingsStore(context).load()
                 detector = ObjectDetectorHelper(
                     threshold = MIN_SCORE,
-                    currentModel = ObjectDetectorHelper.MODEL_EFFICIENTDETV2,
+                    currentDelegate = delegateOf(settings.compute),
+                    currentModel = modelOf(settings.model),
                     runningMode = RunningMode.IMAGE,
                     context = context,
                 )

@@ -12,10 +12,13 @@ enum class Compute { CPU, GPU }
  */
 enum class ModelChoice { LIGHT, FAST, ACCURATE }
 
-/** Everything the user picks on the Scan settings screen. */
+/**
+ * Everything the user picks on the Scan settings screen. Out of the box the app runs on the
+ * graphics chip and only reports what it is sure about; the user can change both.
+ */
 data class ScanSettings(
     val camera: CameraFacing = CameraFacing.BACK,
-    val compute: Compute = Compute.CPU,
+    val compute: Compute = Compute.GPU,
     val model: ModelChoice = ModelChoice.ACCURATE,
     val minScore: Float = DEFAULT_MIN_SCORE,
     val speechOn: Boolean = true,
@@ -30,6 +33,7 @@ data class ScanSettings(
     companion object {
         const val MIN_SCORE_LOW = 0.3f
         const val MIN_SCORE_HIGH = 0.7f
-        const val DEFAULT_MIN_SCORE = 0.5f
+        /** The surest setting by default: fewer things reported, and no wrong ones. */
+        const val DEFAULT_MIN_SCORE = MIN_SCORE_HIGH
     }
 }
