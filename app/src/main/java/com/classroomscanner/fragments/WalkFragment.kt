@@ -45,9 +45,10 @@ import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.search.Beeper
 import com.classroomscanner.speech.SpeechAnnouncer
 import com.classroomscanner.walk.ArCamera
-import com.classroomscanner.walk.cameraBitmap
 import com.classroomscanner.walk.ArProblem
 import com.classroomscanner.walk.Compass
+import com.classroomscanner.walk.DepthBytes
+import com.classroomscanner.walk.FrameBytes
 import com.classroomscanner.walk.LightColor
 import com.classroomscanner.walk.PlaceStore
 import com.classroomscanner.walk.SignReader
@@ -88,6 +89,10 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private val extrasBusy = AtomicBoolean(false)
     private val background = com.classroomscanner.walk.BackgroundRenderer()
 
+    // Refilled every frame instead of allocating: walking for minutes must not fill memory.
+    private val frameBytes = FrameBytes()
+    private val depthBytes = DepthBytes()
+
     private var arCamera: ArCamera? = null
     private val busy = AtomicBoolean(false)
 
@@ -109,8 +114,6 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private var lastSign: String? = null
     private var pendingSign: String? = null
 
-    /** A bigger frame, taken now and then: small letters cannot be read from the detector's frame. */
-    @Volatile private var signFrame: Bitmap? = null
     private var lastSignFrameAt = 0L
     @Volatile private var lastIds: List<Int> = emptyList()
 
@@ -266,12 +269,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
         val now = SystemClock.uptimeMillis()
         if (now - lastAnalysisAt < ANALYSIS_GAP_MS || !busy.compareAndSet(false, true)) return
         lastAnalysisAt = now
-        val now2 = SystemClock.uptimeMillis()
-        if (now2 - lastSignFrameAt >= SIGN_GAP_MS && signFrame == null) {
-            lastSignFrameAt = now2
-            signFrame = frame.cameraBitmap(SIGN_WIDTH)
-        }
-        val walkFrame = frame.toWalkFrame()
+        val walkFrame = frame.toWalkFrame(frameBytes, depthBytes)
         if (walkFrame == null) {
             busy.set(false)
             return
@@ -296,7 +294,15 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     @SuppressLint("UnsafeOptInUsageError")
     private fun analyze(frame: WalkFrame) {
         val detector = detector ?: return
-        val image = frame.image
+        // The picture is made here, on the worker thread, not on the GL thread that draws.
+        val image = frame.bytes.toBitmap(DETECT_WIDTH) ?: return
+        val now = SystemClock.uptimeMillis()
+        val signImage = if (now - lastSignFrameAt >= SIGN_GAP_MS) {
+            lastSignFrameAt = now
+            frame.bytes.toBitmap(SIGN_WIDTH)
+        } else {
+            null
+        }
         val result = detector.detectImage(image)?.results?.firstOrNull() ?: return
         val detections = result.detections()
         val horizon = WalkGeometry.horizonY(frame.pitchDeg, frame.focalPx, image.height)
@@ -336,7 +342,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
             DepthObstacles.nearest(it.metresGrid, it.width, it.height)
         }.orEmpty()
         val named = nameNearest(confirmer.confirmed(hazards), boxes, labels)
-        requestExtras(frame, boxes, labels, metresOf)
+        requestExtras(image, signImage, boxes, labels, metresOf)
         val obstacles = blocked.mapNotNull { (zone, metres) ->
             // Only where no known thing already explains what is there.
             if (named.any { it.zone == zone && abs(it.metres - metres) < SAME_THING_M }) {
@@ -390,7 +396,8 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
      * with saved people and items. One run at a time; their answers arrive on a later frame.
      */
     private fun requestExtras(
-        frame: WalkFrame,
+        image: Bitmap,
+        signImage: Bitmap?,
         boxes: List<FloatArray>,
         labels: List<String>,
         metres: List<Float>,
@@ -404,14 +411,10 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
                     if (nearest != null && ids.getOrNull(nearest) != null &&
                         !stickyNames.isDecided(ids[nearest])
                     ) {
-                        val name = lookUpName(frame.image, boxes[nearest], labels[nearest])
+                        val name = lookUpName(image, boxes[nearest], labels[nearest])
                         stickyNames.vote(ids[nearest], name)
                     }
-                    val forSign = signFrame
-                    if (forSign != null) {
-                        signFrame = null
-                        readSign(forSign)?.let { pendingSign = it }
-                    }
+                    if (signImage != null) readSign(signImage)?.let { pendingSign = it }
                 } catch (e: Exception) {
                     Log.w(TAG, "Walk extras failed", e)
                 } finally {
@@ -603,6 +606,9 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
         /** Letters need pixels: the sign frame is bigger than the one the detector sees. */
         const val SIGN_WIDTH = 960
+
+        /** What the detector sees; bigger than this buys nothing and costs conversion time. */
+        const val DETECT_WIDTH = 320
         const val NAME_EVERY = 4
         const val BEACON_REPEAT_MS = 20_000L
         const val LOCATION_GAP_MS = 2_000L

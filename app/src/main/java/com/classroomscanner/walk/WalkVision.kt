@@ -49,9 +49,9 @@ class DepthMap(val width: Int, val height: Int, private val millimetres: ShortAr
     }
 }
 
-/** Everything walk mode takes from one AR frame. */
+/** Everything walk mode takes from one AR frame, with the picture still in raw bytes. */
 class WalkFrame(
-    val image: Bitmap,
+    val bytes: FrameBytes,
     val depth: DepthMap?,
     /** Ground class under the walker, such as sidewalk or road; null without scene semantics. */
     val ground: String?,
@@ -60,45 +60,21 @@ class WalkFrame(
     val focalPx: Float,
 )
 
-/** Reads one AR frame on the GL thread; everything is guarded, because AR can drop frames. */
-fun Frame.toWalkFrame(): WalkFrame? {
-    val bitmap = cameraBitmap() ?: return null
-    val intrinsics = camera.imageIntrinsics
-    val focal = intrinsics.focalLength.getOrElse(0) { 0f }
+/**
+ * Reads one AR frame on the GL thread, doing only bulk copies, and hands the rest to the caller's
+ * worker thread. Returns null while ARCore has nothing ready.
+ */
+fun Frame.toWalkFrame(bytes: FrameBytes, depth: DepthBytes): WalkFrame? {
+    if (!bytes.copyFrom(this)) return null
+    val hasDepth = depth.copyFrom(this)
+    val focal = camera.imageIntrinsics.focalLength.getOrElse(0) { 0f }
     return WalkFrame(
-        image = bitmap,
-        depth = depthSnapshot(),
+        bytes = bytes,
+        depth = if (hasDepth) depth.map() else null,
         ground = groundLabel(),
         pitchDeg = pitchDeg(),
-        focalPx = if (focal > 0f) focal else bitmap.width.toFloat(),
+        focalPx = if (focal > 0f) focal else bytes.width.toFloat(),
     )
-}
-
-/** Copies the 16-bit depth image out of ARCore; null when depth is off or not ready. */
-private fun Frame.depthSnapshot(): DepthMap? = try {
-    acquireDepthImage16Bits().use { image ->
-        val plane = image.planes[0]
-        val buffer = plane.buffer.order(ByteOrder.nativeOrder())
-        val rowStride = plane.rowStride
-        val values = ShortArray(image.width * image.height)
-        for (y in 0 until image.height) {
-            val row = y * rowStride
-            for (x in 0 until image.width) {
-                val index = row + x * 2
-                if (index + 1 < buffer.limit()) {
-                    val low = buffer.get(index).toInt() and 0xFF
-                    val high = buffer.get(index + 1).toInt() and 0xFF
-                    values[y * image.width + x] = ((high shl 8) or low).toShort()
-                }
-            }
-        }
-        DepthMap(image.width, image.height, values)
-    }
-} catch (e: NotYetAvailableException) {
-    null
-} catch (e: Exception) {
-    Log.w(TAG, "Depth snapshot failed", e)
-    null
 }
 
 /** The scene semantics class in the middle of the bottom edge, where the walker's next step lands. */
