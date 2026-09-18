@@ -24,7 +24,9 @@ import com.classroomscanner.ObjectDetectorHelper
 import com.classroomscanner.R
 import com.classroomscanner.core.Beacon
 import com.classroomscanner.core.Hazard
+import com.classroomscanner.core.HazardConfirmer
 import com.classroomscanner.core.HazardPolicy
+import com.classroomscanner.core.DepthObstacles
 import com.classroomscanner.core.StickyNames
 import com.classroomscanner.core.TrafficLightColor
 import com.classroomscanner.core.VoiceCommand
@@ -91,6 +93,7 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
     private var itemRecognizer: ItemRecognizer? = null
     private var signReader: SignReader? = null
     private val alerts = WalkAlerts()
+    private val confirmer = HazardConfirmer()
     private val stickyNames = StickyNames()
     private var frameCount = 0
     private var lastGround: String? = null
@@ -293,8 +296,24 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
             if (zone == WalkZone.AHEAD && (nearestAhead == null || metres < nearestAhead!!)) nearestAhead = metres
         }
 
-        val named = nameNearest(frame, hazards, boxes, labels, metresOf)
-        val alert = alerts.next(SystemClock.uptimeMillis(), named)
+        // Walls and doors have no class, so the depth image answers for them.
+        val blocked = frame.depth?.let {
+            DepthObstacles.nearest(it.metresGrid(), it.width, it.height)
+        }.orEmpty()
+        val named = nameNearest(frame, confirmer.confirmed(hazards), boxes, labels, metresOf)
+        val obstacles = blocked.mapNotNull { (zone, metres) ->
+            // Only where no known thing already explains what is there.
+            if (named.any { it.zone == zone && abs(it.metres - metres) < SAME_THING_M }) {
+                null
+            } else {
+                Hazard(getString(R.string.walk_obstacle), metres, zone)
+            }
+        }
+        val all = named + obstacles
+        blocked[WalkZone.AHEAD]?.let { ahead ->
+            if (nearestAhead == null || ahead < nearestAhead!!) nearestAhead = ahead
+        }
+        val alert = alerts.next(SystemClock.uptimeMillis(), all)
         val stepLength = if (steps.available) WalkGeometry.stepLength(BODY_HEIGHT_M) else null
         val groundChanged = frame.ground != null && frame.ground != lastGround
         if (groundChanged) lastGround = frame.ground
@@ -515,7 +534,10 @@ class WalkFragment : Fragment(), VoiceCommandTarget, GLSurfaceView.Renderer {
 
     private companion object {
         const val TAG = "ClassroomScanner"
-        const val MIN_SCORE = 0.4f
+        const val MIN_SCORE = 0.55f
+
+        /** A detected thing and a depth reading this close together are the same object. */
+        const val SAME_THING_M = 1f
         const val ANALYSIS_GAP_MS = 250L
         const val SIGN_GAP_MS = 2_500L
         const val NAME_EVERY = 4

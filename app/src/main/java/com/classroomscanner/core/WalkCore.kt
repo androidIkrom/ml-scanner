@@ -55,10 +55,9 @@ object WalkGeometry {
 /** Which detector classes matter while walking, and how urgent a distance is. */
 object HazardPolicy {
     private val hazards = setOf(
-        "person", "bicycle", "car", "motorcycle", "bus", "truck", "train", "boat", "dog", "cat",
-        "horse", "cow", "bench", "chair", "couch", "bed", "dining table", "potted plant", "toilet",
-        "tv", "refrigerator", "stop sign", "fire hydrant", "parking meter", "traffic light",
-        "suitcase", "backpack",
+        "person", "bicycle", "car", "motorcycle", "bus", "truck", "dog",
+        "bench", "chair", "couch", "dining table", "potted plant",
+        "stop sign", "fire hydrant", "suitcase",
     )
 
     fun isHazard(label: String): Boolean = label in hazards
@@ -151,6 +150,89 @@ class WalkAlerts(private val repeatMs: Long = 6_000) {
             val part = ((metres - NEAREST_M) / (RANGE_M - NEAREST_M)).coerceIn(0f, 1f)
             return (NEAREST_MS + (FARTHEST_MS - NEAREST_MS) * part).roundToLong()
         }
+    }
+}
+
+/**
+ * Walls, doors and everything else the detector has no class for: the depth image is read in the
+ * band the walker's body passes through, and a zone counts as blocked only when enough of it is
+ * close, so single stray pixels stay quiet.
+ */
+object DepthObstacles {
+    /** The rows to look at, as fractions of the image: chest height, not the floor or the ceiling. */
+    private const val BAND_TOP = 0.3f
+    private const val BAND_BOTTOM = 0.62f
+
+    private const val MIN_M = 0.3f
+    private const val MAX_M = 8f
+
+    /** A zone must have at least this share of close readings before it is called blocked. */
+    private const val MIN_SHARE = 0.4f
+
+    /** Metres to the nearest thing in each zone; a zone is missing when it is clear. */
+    fun nearest(
+        depthsM: FloatArray,
+        width: Int,
+        height: Int,
+        limitM: Float = 3f,
+    ): Map<WalkZone, Float> {
+        val found = HashMap<WalkZone, Float>()
+        val top = (height * BAND_TOP).toInt().coerceIn(0, height - 1)
+        val bottom = (height * BAND_BOTTOM).toInt().coerceIn(top + 1, height)
+        for (zone in WalkZone.entries) {
+            val from = when (zone) {
+                WalkZone.LEFT -> 0
+                WalkZone.AHEAD -> width / 3
+                WalkZone.RIGHT -> width * 2 / 3
+            }
+            val to = when (zone) {
+                WalkZone.LEFT -> width / 3
+                WalkZone.AHEAD -> width * 2 / 3
+                WalkZone.RIGHT -> width
+            }
+            var valid = 0
+            val close = ArrayList<Float>()
+            for (y in top until bottom) {
+                for (x in from until to) {
+                    val metres = depthsM[y * width + x]
+                    if (metres < MIN_M || metres > MAX_M) continue
+                    valid++
+                    if (metres <= limitM) close += metres
+                }
+            }
+            if (valid == 0 || close.size < MIN_SHARE * valid) continue
+            close.sort()
+            // The lower quarter, so the nearest part of a wall decides, without trusting one pixel.
+            found[zone] = close[close.size / 4]
+        }
+        return found
+    }
+}
+
+/**
+ * Keeps the detector's mistakes quiet: a thing is only announced after it has been seen in most of
+ * the last frames.
+ */
+class HazardConfirmer(private val minHits: Int = 3, private val window: Int = 5) {
+    private val seen = HashMap<String, ArrayDeque<Boolean>>()
+    private val latest = HashMap<String, Hazard>()
+
+    /** The hazards of this frame that have been seen often enough to be believed. */
+    fun confirmed(hazards: List<Hazard>): List<Hazard> {
+        val here = hazards.associateBy { it.label }
+        for (label in (seen.keys + here.keys).toSet()) {
+            val hits = seen.getOrPut(label) { ArrayDeque() }
+            hits.addLast(label in here)
+            while (hits.size > window) hits.removeFirst()
+            if (hits.none { it }) seen.remove(label)
+        }
+        here.forEach { (label, hazard) -> latest[label] = hazard }
+        return hazards.filter { (seen[it.label]?.count { hit -> hit } ?: 0) >= minHits }
+    }
+
+    fun clear() {
+        seen.clear()
+        latest.clear()
     }
 }
 

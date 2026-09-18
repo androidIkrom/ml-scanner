@@ -11,7 +11,13 @@ import kotlin.math.asin
 private const val TAG = "ClassroomScanner"
 
 /** Metric depth of one frame, copied out so it can be used after the frame is gone. */
-class DepthMap(private val width: Int, private val height: Int, private val millimetres: ShortArray) {
+class DepthMap(val width: Int, val height: Int, private val millimetres: ShortArray) {
+
+    /** The whole frame in metres; 0 where the phone could not measure. */
+    fun metresGrid(): FloatArray = FloatArray(width * height) { i ->
+        val mm = millimetres[i].toInt() and 0x1FFF
+        if (mm in MIN_MM..MAX_MM) mm / 1000f else 0f
+    }
 
     /**
      * Metres to a box given in 0..1 fractions of the image: the median of samples in its lower half,

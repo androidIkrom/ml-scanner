@@ -163,6 +163,7 @@
     <string name="walk_ar_unsupported">This phone cannot run AR, so walk mode is not available.</string>
     <string name="walk_ar_failed">Walk mode could not start the camera.</string>
     <string name="walk_models_failed">Walk mode could not load its models.</string>
+    <string name="walk_obstacle">obstacle</string>
     <string name="walk_sign">Sign: %s.</string>
     <string name="walk_save_place">Save place</string>
     <string name="walk_place_name">Name, for example home</string>
