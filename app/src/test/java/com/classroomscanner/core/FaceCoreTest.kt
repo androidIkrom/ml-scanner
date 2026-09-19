@@ -39,7 +39,50 @@ class FaceMatcherTest {
         val known = listOf(KnownFace(1L, "Ali", floatArrayOf(1f, 0f)))
         assertNull(FaceMatcher.bestMatch(floatArrayOf(0f, 1f), known))
         assertNull(FaceMatcher.bestMatch(floatArrayOf(1f, 0f), emptyList()))
-        assertEquals(0.3f, FaceMatcher.THRESHOLD, 0f)
+    }
+
+    @Test
+    fun theThresholdIsStrictEnoughToKeepStrangersApart() {
+        assertEquals(0.5f, FaceMatcher.THRESHOLD, 0f)
+        assertEquals(0.08f, FaceMatcher.MARGIN, 0f)
+    }
+
+    @Test
+    fun oneLuckySampleIsNotEnough() {
+        // Ali has one sample that happens to look like the face, and many that do not.
+        val ali = listOf(floatArrayOf(1f, 0f, 0f), floatArrayOf(0f, 0f, 1f), floatArrayOf(0f, 0f, 1f))
+            .map { KnownFace(1L, "Ali", it) }
+        // Vali looks like the face in most of his samples.
+        val vali = listOf(floatArrayOf(0.9f, 0.3f, 0f), floatArrayOf(0.85f, 0.35f, 0f), floatArrayOf(0.9f, 0.25f, 0f))
+            .map { KnownFace(2L, "Vali", it) }
+        val match = FaceMatcher.bestMatch(floatArrayOf(0.95f, 0.2f, 0f), ali + vali)
+        assertEquals("Vali", match?.name)
+    }
+
+    @Test
+    fun twoPeopleTooCloseToCallIsNobody() {
+        val known = listOf(
+            KnownFace(1L, "Ali", floatArrayOf(1f, 0.05f)),
+            KnownFace(2L, "Vali", floatArrayOf(1f, -0.05f)),
+        )
+        assertNull(FaceMatcher.bestMatch(floatArrayOf(1f, 0f), known))
+    }
+
+    @Test
+    fun aClearWinnerIsNamed() {
+        val known = listOf(
+            KnownFace(1L, "Ali", floatArrayOf(1f, 0f)),
+            KnownFace(2L, "Vali", floatArrayOf(0f, 1f)),
+        )
+        assertEquals("Ali", FaceMatcher.bestMatch(floatArrayOf(1f, 0.1f), known)?.name)
+    }
+
+    @Test
+    fun onlyGoodFacesAreCompared() {
+        assertTrue(FaceQuality.usable(sizePx = 120, yawDeg = 10f, pitchDeg = 5f))
+        assertFalse(FaceQuality.usable(sizePx = 40, yawDeg = 0f, pitchDeg = 0f))
+        assertFalse(FaceQuality.usable(sizePx = 120, yawDeg = 50f, pitchDeg = 0f))
+        assertFalse(FaceQuality.usable(sizePx = 120, yawDeg = 0f, pitchDeg = -40f))
     }
 }
 

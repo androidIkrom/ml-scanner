@@ -37,7 +37,6 @@ import com.classroomscanner.core.WalkPhrases
 import com.classroomscanner.core.WalkZone
 import com.classroomscanner.databinding.FragmentWalkBinding
 import com.classroomscanner.face.FaceRecognizer
-import com.classroomscanner.face.cropFace
 import com.classroomscanner.guide.VoiceCommandTarget
 import com.classroomscanner.items.ItemRecognizer
 import com.classroomscanner.items.ItemRepository

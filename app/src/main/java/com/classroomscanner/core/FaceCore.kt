@@ -9,10 +9,23 @@ class KnownFace(val personId: Long, val name: String, val vector: FloatArray)
 
 data class FaceMatch(val personId: Long, val name: String, val similarity: Float)
 
-/** Compares FaceNet embeddings by cosine similarity. */
+/**
+ * Compares FaceNet embeddings by cosine similarity, carefully enough not to mix people up: a person
+ * is scored by their few best samples together, not by one lucky sample, and a name is only given
+ * when it clearly beats the next person.
+ */
 object FaceMatcher {
-    /** Reference threshold for FaceNet-512 (shubham0204/FaceRecognition_With_FaceNet_Android). */
-    const val THRESHOLD = 0.3f
+    /**
+     * A person's score must reach this. The reference app used 0.3, which lets strangers through;
+     * with aligned faces the same person scores well above 0.5.
+     */
+    const val THRESHOLD = 0.5f
+
+    /** The winner must beat the next person by this much, or the face is left unnamed. */
+    const val MARGIN = 0.08f
+
+    /** How many of a person's best samples are averaged into their score. */
+    private const val TOP_SAMPLES = 3
 
     fun cosine(a: FloatArray, b: FloatArray): Float {
         if (a.size != b.size || a.isEmpty()) return 0f
@@ -28,10 +41,26 @@ object FaceMatcher {
         return (dot / (sqrt(na) * sqrt(nb))).toFloat()
     }
 
-    fun bestMatch(vector: FloatArray, known: List<KnownFace>, threshold: Float = THRESHOLD): FaceMatch? =
-        known.map { FaceMatch(it.personId, it.name, cosine(vector, it.vector)) }
-            .filter { it.similarity >= threshold }
-            .maxByOrNull { it.similarity }
+    fun bestMatch(vector: FloatArray, known: List<KnownFace>, threshold: Float = THRESHOLD): FaceMatch? {
+        val scores = known.groupBy { it.personId }.map { (id, faces) ->
+            val best = faces.map { cosine(vector, it.vector) }.sortedDescending().take(TOP_SAMPLES)
+            FaceMatch(id, faces.first().name, best.average().toFloat())
+        }.sortedByDescending { it.similarity }
+        val winner = scores.firstOrNull() ?: return null
+        if (winner.similarity < threshold) return null
+        val runnerUp = scores.getOrNull(1)?.similarity ?: return winner
+        return if (winner.similarity - runnerUp >= MARGIN) winner else null
+    }
+}
+
+/** Which faces are worth comparing at all: small or turned-away faces give unreliable embeddings. */
+object FaceQuality {
+    private const val MIN_SIZE_PX = 64
+    private const val MAX_YAW_DEG = 35f
+    private const val MAX_PITCH_DEG = 25f
+
+    fun usable(sizePx: Int, yawDeg: Float, pitchDeg: Float): Boolean =
+        sizePx >= MIN_SIZE_PX && abs(yawDeg) <= MAX_YAW_DEG && abs(pitchDeg) <= MAX_PITCH_DEG
 }
 
 /** FaceNet input normalization: per-image standardization, as in the reference app. */

@@ -26,7 +26,7 @@ import com.classroomscanner.core.Pose
 import com.classroomscanner.databinding.FragmentEnrollBinding
 import com.classroomscanner.face.FaceEmbedder
 import com.classroomscanner.face.FaceFinder
-import com.classroomscanner.face.cropFace
+import com.classroomscanner.face.alignedFace
 import com.classroomscanner.face.upright
 import com.classroomscanner.people.PeopleRepository
 import com.classroomscanner.speech.SpeechAnnouncer
@@ -150,13 +150,13 @@ class EnrollFragment : Fragment() {
                 faces.size > 1 -> warn(R.string.enroll_one_face)
                 else -> {
                     val face = faces[0]
-                    val crop = upright.cropFace(face.boundingBox) ?: return warn(R.string.enroll_no_face)
+                    val crop = upright.alignedFace(face) ?: return warn(R.string.enroll_no_face)
                     val pose = guide.currentPose
                     if (!guide.offer(face.headEulerAngleY, face.headEulerAngleX)) {
                         onMain { showStatus(null) }
                         return
                     }
-                    vectors += embedder.embed(crop)
+                    vectors += embedder.embedSteady(crop)
                     if (pose == Pose.STRAIGHT && photo == null) photo = crop
                     lastSampleAt = SystemClock.uptimeMillis()
                     onSample()

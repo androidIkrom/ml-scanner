@@ -7,18 +7,22 @@ import android.graphics.Rect
 import com.classroomscanner.core.FaceMatch
 import com.classroomscanner.core.FaceMatcher
 import com.classroomscanner.core.FaceNetPreprocess
+import com.classroomscanner.core.FaceQuality
 import com.classroomscanner.core.KnownFace
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.google.mlkit.vision.face.FaceLandmark
 import org.tensorflow.lite.Interpreter
 import java.io.Closeable
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
+import kotlin.math.abs
+import kotlin.math.atan2
 
 /** Rotates a camera buffer so faces are upright for ML Kit and FaceNet. */
 fun Bitmap.upright(rotationDegrees: Int): Bitmap {
@@ -41,6 +45,33 @@ fun Bitmap.cropFace(box: Rect, margin: Float = 0.1f): Bitmap? {
 
 private const val MIN_FACE_PX = 24
 
+/**
+ * The face turned so its eyes are level, cropped with a small margin. FaceNet was trained on level
+ * faces, and a tilted head alone was enough to make two people look alike. Falls back to the plain
+ * crop when the eyes were not found.
+ */
+fun Bitmap.alignedFace(face: Face): Bitmap? {
+    val box = face.boundingBox
+    val left = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
+    val right = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
+    if (left == null || right == null) return cropFace(box)
+    val tilt = Math.toDegrees(atan2((right.y - left.y).toDouble(), (right.x - left.x).toDouble())).toFloat()
+    if (abs(tilt) < MIN_TILT_DEG) return cropFace(box)
+    val wide = cropFace(box, margin = WIDE_MARGIN) ?: return null
+    val level = Bitmap.createBitmap(
+        wide, 0, 0, wide.width, wide.height, Matrix().apply { postRotate(-tilt) }, true,
+    )
+    // The face sits in the middle of the turned picture; keep it with the usual margin.
+    val width = (box.width() * (1 + 2 * FACE_MARGIN)).toInt().coerceAtMost(level.width)
+    val height = (box.height() * (1 + 2 * FACE_MARGIN)).toInt().coerceAtMost(level.height)
+    if (width < MIN_FACE_PX || height < MIN_FACE_PX) return null
+    return Bitmap.createBitmap(level, (level.width - width) / 2, (level.height - height) / 2, width, height)
+}
+
+private const val MIN_TILT_DEG = 3f
+private const val WIDE_MARGIN = 0.35f
+private const val FACE_MARGIN = 0.1f
+
 /** ML Kit face detector (blocking calls; use a background thread). */
 class FaceFinder(accurate: Boolean) : Closeable {
     private val detector = FaceDetection.getClient(
@@ -49,6 +80,8 @@ class FaceFinder(accurate: Boolean) : Closeable {
                 if (accurate) FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE else FaceDetectorOptions.PERFORMANCE_MODE_FAST
             )
             .setMinFaceSize(0.1f)
+            // Eye positions are needed to level the face before it is compared.
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
             .build()
     )
 
@@ -70,6 +103,19 @@ class FaceEmbedder(context: Context) : Closeable {
         }
         interpreter = Interpreter(model, Interpreter.Options().setNumThreads(THREADS))
         outputSize = interpreter.getOutputTensor(0).shape()[1]
+    }
+
+    /**
+     * The embedding of the face and of its mirror image, averaged. One photo's lighting or angle
+     * then moves the result less, so the same person matches more steadily.
+     */
+    fun embedSteady(face: Bitmap): FloatArray {
+        val flipped = Bitmap.createBitmap(
+            face, 0, 0, face.width, face.height, Matrix().apply { preScale(-1f, 1f) }, true,
+        )
+        val a = embed(face)
+        val b = embed(flipped)
+        return FloatArray(a.size) { (a[it] + b[it]) / 2f }
     }
 
     fun embed(face: Bitmap): FloatArray {
@@ -108,9 +154,13 @@ class FaceRecognizer(context: Context, private val known: List<KnownFace>) : Clo
 
     fun recognize(upright: Bitmap): List<RecognizedFace> =
         finder.find(upright).mapNotNull { face ->
-            val crop = upright.cropFace(face.boundingBox) ?: return@mapNotNull null
-            val match = FaceMatcher.bestMatch(embedder.embed(crop), known) ?: return@mapNotNull null
-            RecognizedFace(face.boundingBox.exactCenterX(), face.boundingBox.exactCenterY(), match)
+            val box = face.boundingBox
+            // Small or turned-away faces give embeddings that look like anybody; skip them.
+            val size = minOf(box.width(), box.height())
+            if (!FaceQuality.usable(size, face.headEulerAngleY, face.headEulerAngleX)) return@mapNotNull null
+            val crop = upright.alignedFace(face) ?: return@mapNotNull null
+            val match = FaceMatcher.bestMatch(embedder.embedSteady(crop), known) ?: return@mapNotNull null
+            RecognizedFace(box.exactCenterX(), box.exactCenterY(), match)
         }
 
     override fun close() {
